@@ -38,11 +38,18 @@ feature_cache/
 alerts_state/
 fx_rates.json
 dashboard.html
+pipeline_dashboard_*.html
+ticker_*.html
 portfolio_*.json
 alert_*.json
 LITERATURE_SCOUT.md
 LITERATURE_SCOUT.json
 benchmark_cache/
+
+# credentials (real values only ever go in .env, never committed — see
+# TRENDLYNE_SCREENER_ACCESS.md)
+.env
+.env.local
 
 # generated analytics outputs (derived data, rebuilt on demand — not source)
 ml_viability_*.csv*

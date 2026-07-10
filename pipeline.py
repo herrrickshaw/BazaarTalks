@@ -115,6 +115,47 @@ def stage_analyze(market: str) -> bool:
     return True
 
 
+def stage_live(market: str, limit: int | None, pause: float) -> bool:
+    """Live fundamentals backfill/refresh via trendlyne_session/screener_session
+    (see live_fundamentals.py) — currently only meaningful for IN (India), the
+    one market both sources cover. India isn't in the ohlc warehouse view at all
+    (the 19-market cleaned_long_*.parquet seed doesn't include it), so the
+    ticker list instead comes from the `companies` industry/peer view, stripping
+    the yfinance .NS/.BO suffix Trendlyne/Screener.in don't use."""
+    import duckdb
+    import warehouse
+    import live_fundamentals
+
+    con = duckdb.connect(warehouse.DB)
+    try:
+        warehouse.build(con)
+        if market == "IN":
+            q = "SELECT DISTINCT ticker FROM companies WHERE country = 'India' ORDER BY ticker"
+            if limit:
+                q += f" LIMIT {int(limit)}"
+            raw = [r[0] for r in con.execute(q).fetchall()]
+            tickers = sorted({t.split(".")[0] for t in raw if t})
+            if limit:
+                tickers = tickers[:limit]
+        else:
+            q = "SELECT DISTINCT ticker FROM ohlc WHERE market = ? ORDER BY ticker"
+            if limit:
+                q += f" LIMIT {int(limit)}"
+            tickers = [r[0] for r in con.execute(q, [market]).fetchall()]
+    finally:
+        con.close()
+
+    if not tickers:
+        print(f"  [live] no tickers found for market={market}")
+        return False
+
+    print(f"  [live] fetching {len(tickers)} tickers for {market} (pause={pause}s)...")
+    results = live_fundamentals.fetch_batch(tickers, market=market, pause=pause)
+    n_ok = sum(1 for r in results.values() if r.get("source"))
+    print(f"  [live] {n_ok}/{len(results)} tickers got at least one live source")
+    return n_ok > 0
+
+
 def stage_graphics(market: str, out: str | None = None) -> bool:
     import dashboard
     print(f"  [graphics] rendering dashboard for {market} ...")
@@ -133,10 +174,13 @@ def main():
     ap.add_argument("--process", action="store_true")
     ap.add_argument("--analyze", metavar="MARKET", help="warehouse market code, e.g. US, JP, IN")
     ap.add_argument("--graphics", metavar="MARKET")
+    ap.add_argument("--live", metavar="MARKET", help="live Trendlyne/Screener.in fundamentals backfill (IN only, currently)")
+    ap.add_argument("--limit", type=int, help="cap tickers for --live (e.g. for a quick test run)")
+    ap.add_argument("--pause", type=float, default=1.5, help="seconds between --live requests (politeness)")
     ap.add_argument("--all", metavar="MARKET", help="process -> validate -> analyze -> graphics")
     args = ap.parse_args()
 
-    if not any([args.source, args.validate, args.process, args.analyze, args.graphics, args.all]):
+    if not any([args.source, args.validate, args.process, args.analyze, args.graphics, args.live, args.all]):
         ap.print_help()
         return
 
@@ -150,6 +194,8 @@ def main():
         results["validate"] = stage_validate()
     if args.analyze:
         results["analyze"] = stage_analyze(args.analyze.upper())
+    if args.live:
+        results["live"] = stage_live(args.live.upper(), args.limit, args.pause)
     if args.graphics:
         results["graphics"] = stage_graphics(args.graphics.upper())
 

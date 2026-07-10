@@ -47,3 +47,9 @@ apache-flink==2.3.0      # OPTIONAL: flink_cdc_consumer.py / flink_screens.py do
 
 # --- Analytical warehouse ---
 duckdb==1.4.5           # DuckDB SQL layer over parquets + attached SQLite (warehouse.py)
+
+# --- Live fundamentals (Trendlyne/Screener.in, cookie-authenticated — see
+# TRENDLYNE_SCREENER_ACCESS.md) ---
+playwright==1.48.0      # trendlyne_session.py — Trendlyne is a JS-rendered SPA, needs a real
+                         #   browser context (screener.in is plain requests, no extra dep needed).
+                         #   One-time setup after pip install: `playwright install chromium`

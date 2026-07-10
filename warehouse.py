@@ -72,13 +72,22 @@ def build(con):
         for view, table in views.items():
             try:
                 if view == "fundamentals":   # yfinance can store 'Infinity' as text -> coerce
-                    con.execute(f"""CREATE OR REPLACE VIEW fundamentals AS SELECT ticker, market,
+                    base_cols = """ticker, market,
                         TRY_CAST(pe AS DOUBLE) pe, TRY_CAST(pb AS DOUBLE) pb,
                         TRY_CAST(roe AS DOUBLE) roe, TRY_CAST(roa AS DOUBLE) roa,
                         TRY_CAST(de AS DOUBLE) de, TRY_CAST(rev_growth AS DOUBLE) rev_growth,
                         TRY_CAST(earn_growth AS DOUBLE) earn_growth, TRY_CAST(op_margin AS DOUBLE) op_margin,
                         TRY_CAST(div_yield AS DOUBLE) div_yield, TRY_CAST(mktcap AS DOUBLE) mktcap,
-                        sector FROM {alias}.{table}""")
+                        sector"""
+                    try:
+                        # `source` (which live_fundamentals.py stamps: trendlyne/screener.in/
+                        # both) is additive — older fund tables built by fundamentals_global.py
+                        # alone won't have it yet
+                        con.execute(f"""CREATE OR REPLACE VIEW fundamentals AS
+                            SELECT {base_cols}, source FROM {alias}.{table}""")
+                    except Exception:
+                        con.execute(f"""CREATE OR REPLACE VIEW fundamentals AS
+                            SELECT {base_cols}, CAST(NULL AS VARCHAR) AS source FROM {alias}.{table}""")
                 else:
                     con.execute(f"CREATE OR REPLACE VIEW {view} AS SELECT * FROM {alias}.{table}")
             except Exception as e:

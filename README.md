@@ -88,6 +88,15 @@ on the `serve.py` API. Every stage skips gracefully (prints a note, doesn't cras
 given view/cache isn't built locally yet — see `warehouse.ticker_detail()` and
 `dashboard._query_all()`.
 
+### Live fundamentals (Trendlyne / Screener.in)
+
+`trendlyne_session.py` + `screener_session.py` pull real India fundamentals from
+your own paid accounts — cookie-authenticated, no password ever submitted by
+this code (see **[TRENDLYNE_SCREENER_ACCESS.md](TRENDLYNE_SCREENER_ACCESS.md)**
+for setup). `python pipeline.py --live IN --limit 50` backfills into
+`fundamentals_cache.db`, which the `fundamentals` warehouse view and
+`ticker_view.py`'s scorecard pick up automatically, source-badged.
+
 ---
 
 ## The core scan pipeline

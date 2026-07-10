@@ -100,9 +100,14 @@ def render_html(ticker: str, market: str, detail: dict, accum_row: dict | None,
         parts.append("</div>")
 
     # ── Fundamentals ─────────────────────────────────────────────────────
-    parts.append("<h2>Fundamentals</h2>")
+    src = fund.get("source")
+    src_badge = f" <span class='badge'>via {src}</span>" if src else ""
+    parts.append(f"<h2>Fundamentals{src_badge}</h2>")
     if fund:
-        rows = "".join(f"<tr><td>{k}</td><td>{v}</td></tr>" for k, v in fund.items() if k not in ("ticker", "market"))
+        rows = "".join(
+            f"<tr><td>{k}</td><td>{v}</td></tr>"
+            for k, v in fund.items() if k not in ("ticker", "market", "source")
+        )
         parts.append(f"<table>{rows}</table>")
     else:
         parts.append("<p class='meta'>no fundamentals cached for this ticker</p>")
