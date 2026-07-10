@@ -69,6 +69,25 @@ python pit_backtest.py --universe scan --years 5
 
 See the **[User Guide](USER_GUIDE.md)** for the full workflow and every module.
 
+## Pipeline
+
+`pipeline.py` orchestrates the existing stages end to end — it wraps the modules
+above, it doesn't reimplement them:
+
+```bash
+python pipeline.py --all US        # process (rebuild warehouse) -> validate
+                                     # (data_quality.py) -> analyze (DVM +
+                                     # accumulation screen) -> graphics (dashboard)
+python pipeline.py --source indian # run one market's scanner (slow/network; opt-in)
+python pipeline.py --validate      # data_quality.py alone, CI-gateable (non-zero exit on FAIL)
+```
+
+Graphics are dependency-free SVG (`charts.py` — no matplotlib/plotly), embedded in
+`dashboard.py`/`ticker_view.py` and independently queryable via `GET /chart/ticker/{symbol}`
+on the `serve.py` API. Every stage skips gracefully (prints a note, doesn't crash) when a
+given view/cache isn't built locally yet — see `warehouse.ticker_detail()` and
+`dashboard._query_all()`.
+
 ---
 
 ## The core scan pipeline

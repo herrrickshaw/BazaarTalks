@@ -22,6 +22,8 @@ import argparse
 import datetime as dt
 import os
 
+import charts
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 _CSS = """
@@ -77,6 +79,25 @@ def render_html(ticker: str, market: str, detail: dict, accum_row: dict | None,
     parts.append(_card("P/E", fund.get("pe")))
     parts.append(_card("D/E", fund.get("de")))
     parts.append("</div>")
+
+    # ── Graphics: price chart + momentum/DVM gauges ─────────────────────────
+    parts.append("<h2>Price</h2>")
+    if ohlc:
+        chrono = list(reversed(ohlc))  # ohlc arrives newest-first; charts read left-to-right
+        dates = [str(row["Date"])[:10] for row in chrono]
+        closes = [row["Close"] for row in chrono]
+        parts.append(charts.line_chart(dates, closes, width=600, height=160,
+                                        title=f"{ticker} close, last {len(closes)} bars"))
+    else:
+        parts.append("<p class='meta'>no OHLC history to chart</p>")
+
+    if dvm.get("M") is not None or comp.get("composite") is not None:
+        parts.append("<div style='display:flex;gap:1rem;flex-wrap:wrap'>")
+        if dvm.get("M") is not None:
+            parts.append(charts.gauge(dvm["M"], label="Momentum (M)"))
+        if comp.get("composite") is not None:
+            parts.append(charts.gauge(comp["composite"], label="DVM composite score"))
+        parts.append("</div>")
 
     # ── Fundamentals ─────────────────────────────────────────────────────
     parts.append("<h2>Fundamentals</h2>")

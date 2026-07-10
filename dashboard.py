@@ -22,6 +22,8 @@ import os
 
 import pandas as pd
 
+import charts
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 OUT = os.path.join(HERE, "dashboard.html")
 
@@ -48,6 +50,8 @@ def render_html(sections: dict, generated: str | None = None) -> str:
         if df is None or len(df) == 0:
             parts.append("<p class='meta'>no data</p>")
         else:
+            if title == "DVM classification" and {"label", "n"} <= set(df.columns):
+                parts.append(charts.bar_chart(df["label"].tolist(), df["n"].tolist(), title=title))
             parts.append(df.to_html(index=False, border=0))
     parts.append("</body></html>")
     return "".join(parts)
@@ -77,11 +81,21 @@ def _query_all(accum_top: int = 15, include_accum: bool = True) -> dict:
     warehouse.build(con)
     con.execute("SET max_expression_depth=10000")
     sec = {}
+    section_queries = {
+        "Market coverage": "markets",
+        "DVM classification": "dvm_dist",
+        "Top GGG Strong Performers": "ggg_global",
+        "High ROE / low D-E": "high_roe_low_de",
+    }
     try:
-        sec["Market coverage"] = con.execute(warehouse.SHOWS["markets"]).df()
-        sec["DVM classification"] = con.execute(warehouse.SHOWS["dvm_dist"]).df()
-        sec["Top GGG Strong Performers"] = con.execute(warehouse.SHOWS["ggg_global"]).df()
-        sec["High ROE / low D-E"] = con.execute(warehouse.SHOWS["high_roe_low_de"]).df()
+        # each section isolated — a view missing locally (e.g. dvm_composite.db
+        # not built yet) skips just that section instead of crashing the page
+        for title, show in section_queries.items():
+            try:
+                sec[title] = con.execute(warehouse.SHOWS[show]).df()
+            except Exception as e:                   # noqa: BLE001
+                print(f"  [dashboard] {title!r} section skipped: {e}")
+                sec[title] = pd.DataFrame()
     finally:
         con.close()
     if include_accum:

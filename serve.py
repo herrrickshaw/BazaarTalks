@@ -14,6 +14,7 @@ Endpoints:
   GET /screen/{name}               any named warehouse query (see QUERY_CATALOG)
   GET /filter?predicate=roe>15     ad-hoc DVM⋈fundamentals filter (validated)
   GET /ticker/{symbol}?market=US   single-ticker OHLC + fundamentals + DVM (see ticker_view.py for the HTML render)
+  GET /chart/ticker/{symbol}?market=US   standalone SVG close-price chart (image/svg+xml)
 
 FastAPI and duckdb are imported lazily inside create_app() so this module (and
 its pure query-builder, which is unit-tested) imports with no heavy deps. The
@@ -149,6 +150,29 @@ def create_app():
             return detail
         finally:
             con.close()
+
+    @app.get("/chart/ticker/{symbol}")
+    def chart_ticker(symbol: str, market: str = Query(...), bars: int = 60):
+        """Graphics stage over HTTP: the same OHLC close series as GET /ticker,
+        rendered as a standalone SVG so it can be embedded or queried on its own
+        (an <img src=...> tag, a notebook, another service) without pulling the
+        full JSON payload."""
+        from fastapi import Response
+        import charts
+        import warehouse
+        con = _connect()
+        try:
+            detail = warehouse.ticker_detail(con, symbol.upper(), market.upper(), bars=bars)
+        finally:
+            con.close()
+        if not detail["ohlc"]:
+            raise HTTPException(404, f"no OHLC data for {symbol}/{market}")
+        chrono = list(reversed(detail["ohlc"]))
+        dates = [str(row["Date"])[:10] for row in chrono]
+        closes = [row["Close"] for row in chrono]
+        svg = charts.line_chart(dates, closes, width=600, height=160,
+                                 title=f"{symbol.upper()} close, last {len(closes)} bars")
+        return Response(content=svg, media_type="image/svg+xml")
 
     # ── watchlist CRUD (versioned) — the write surface, over vcrud ──────────────
     from fastapi import Body
