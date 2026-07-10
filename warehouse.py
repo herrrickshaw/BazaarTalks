@@ -104,6 +104,49 @@ SHOWS = {
                          "USING SAMPLE 0 ROWS",  # placeholder; companies has list cols
 }
 
+# Tables joined per ticker for ticker_detail(); source view -> result key.
+# ohlc is handled separately (bar history, not a single-row join).
+_TICKER_JOIN_VIEWS = {
+    "fundamentals": "fundamentals",
+    "dvm_global": "dvm_technical",
+    "dvm_composite": "dvm_composite",
+}
+
+
+def ticker_detail(con, ticker: str, market: str, bars: int = 60) -> dict:
+    """
+    Single-ticker lookup across every view the warehouse currently has built —
+    OHLC history plus whichever of fundamentals/dvm_global/dvm_composite are
+    present. Missing views (not every environment has run every producer) are
+    silently omitted rather than erroring, matching the rest of the platform's
+    "skip what's absent" convention. Uses bound parameters (?, not string
+    interpolation) since ticker/market come from a request path/query param.
+    """
+    available = {r[0] for r in con.execute("SHOW TABLES").fetchall()}
+    result: dict = {"ticker": ticker, "market": market}
+
+    if "ohlc" in available:
+        df = con.execute(
+            "SELECT Date, Open, High, Low, Close, Volume FROM ohlc "
+            "WHERE ticker = ? AND market = ? ORDER BY Date DESC LIMIT ?",
+            [ticker, market, bars],
+        ).df()
+        result["ohlc"] = df.to_dict("records")
+    else:
+        result["ohlc"] = []
+
+    for view, key in _TICKER_JOIN_VIEWS.items():
+        if view not in available:
+            result[key] = None
+            continue
+        row = con.execute(
+            f"SELECT * FROM {view} WHERE ticker = ? AND market = ? LIMIT 1",
+            [ticker, market],
+        ).df()
+        result[key] = row.to_dict("records")[0] if not row.empty else None
+
+    return result
+
 
 def refresh_ohlc_partition(market: str, new_parquet: str) -> dict:
     """F9.1: append only genuinely new dates from `new_parquet` into a market's

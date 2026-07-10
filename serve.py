@@ -13,6 +13,7 @@ Endpoints:
   GET /ggg?market=US&limit=25      GGG Strong Performers
   GET /screen/{name}               any named warehouse query (see QUERY_CATALOG)
   GET /filter?predicate=roe>15     ad-hoc DVM⋈fundamentals filter (validated)
+  GET /ticker/{symbol}?market=US   single-ticker OHLC + fundamentals + DVM (see ticker_view.py for the HTML render)
 
 FastAPI and duckdb are imported lazily inside create_app() so this module (and
 its pure query-builder, which is unit-tested) imports with no heavy deps. The
@@ -27,6 +28,7 @@ from __future__ import annotations
 
 import os
 import re
+from typing import Optional
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -94,7 +96,7 @@ def create_app():
             con.close()
 
     @app.get("/ggg")
-    def ggg(market: str | None = None, limit: int = 25):
+    def ggg(market: Optional[str] = None, limit: int = 25):
         con = _connect()
         try:
             q = build_query("ggg", limit)
@@ -129,6 +131,22 @@ def create_app():
                  f"LEFT JOIN fundamentals f ON c.ticker=f.ticker "
                  f"WHERE {pred} ORDER BY c.composite DESC LIMIT {int(limit)}")
             return con.execute(q).df().to_dict("records")
+        finally:
+            con.close()
+
+    @app.get("/ticker/{symbol}")
+    def ticker(symbol: str, market: str = Query(...)):
+        """Single-ticker detail: recent OHLC bars plus whichever of fundamentals/
+        dvm_global/dvm_composite the warehouse currently has built (see
+        warehouse.ticker_detail — missing views come back as null, not an error)."""
+        import warehouse
+        con = _connect()
+        try:
+            detail = warehouse.ticker_detail(con, symbol.upper(), market.upper())
+            if not detail["ohlc"] and detail["fundamentals"] is None \
+                    and detail["dvm_technical"] is None and detail["dvm_composite"] is None:
+                raise HTTPException(404, f"no data for {symbol}/{market}")
+            return detail
         finally:
             con.close()
 
@@ -215,6 +233,14 @@ class _LazyApp:
         if _LazyApp._app is None:
             _LazyApp._app = create_app()
         return getattr(_LazyApp._app, item)
+
+    async def __call__(self, scope, receive, send):
+        # __getattr__ doesn't intercept dunder lookups (Python resolves them via
+        # the type, not instance __getattr__), so ASGI servers calling app(...)
+        # directly need an explicit __call__ that builds+delegates the same way.
+        if _LazyApp._app is None:
+            _LazyApp._app = create_app()
+        await _LazyApp._app(scope, receive, send)
 
 
 app = _LazyApp()
