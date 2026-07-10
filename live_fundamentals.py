@@ -37,6 +37,21 @@ _SCHEMA_COLS = [
 ]
 
 
+def _retry(fn, symbol: str, attempts: int = 2, backoff: float = 3.0):
+    """Retry once on a transient connection error (e.g. local ephemeral-port/
+    TIME_WAIT exhaustion under parallel load — recoverable after a short pause,
+    unlike an auth failure or a real 4xx/5xx) before giving up on this ticker."""
+    last_exc = None
+    for attempt in range(attempts):
+        try:
+            return fn(symbol)
+        except (ConnectionError, OSError) as e:
+            last_exc = e
+            if attempt < attempts - 1:
+                time.sleep(backoff)
+    raise last_exc
+
+
 def fetch_one(symbol: str, market: str = "IN") -> dict:
     """Trendlyne + Screener.in merged (Trendlyne's fields win on overlap, since
     it's the faster/higher-throughput source per the existing platform convention)."""
@@ -45,7 +60,7 @@ def fetch_one(symbol: str, market: str = "IN") -> dict:
 
     try:
         import trendlyne_session
-        tl = trendlyne_session.fundamentals(symbol)
+        tl = _retry(trendlyne_session.fundamentals, symbol)
         if tl:
             result.update({k: v for k, v in tl.items() if k not in ("source", "ticker")})
             sources.append("trendlyne")
@@ -54,7 +69,7 @@ def fetch_one(symbol: str, market: str = "IN") -> dict:
 
     try:
         import screener_session
-        sc = screener_session.company_financials(symbol)
+        sc = _retry(screener_session.company_financials, symbol)
         if sc:
             for k, v in sc.items():
                 if k in ("source", "ticker"):
@@ -69,8 +84,12 @@ def fetch_one(symbol: str, market: str = "IN") -> dict:
 
 
 def _cache_conn() -> sqlite3.Connection:
-    c = sqlite3.connect(CACHE)
-    c.execute("PRAGMA journal_mode=DELETE;")
+    c = sqlite3.connect(CACHE, timeout=30)
+    # WAL (not DELETE) so multiple parallel collector processes can write
+    # concurrently without "database is locked" errors — needed once a
+    # backfill is split across parallel workers.
+    c.execute("PRAGMA journal_mode=WAL;")
+    c.execute("PRAGMA busy_timeout=30000;")
     c.execute("""CREATE TABLE IF NOT EXISTS fund(ticker TEXT PRIMARY KEY, market TEXT,
         pe REAL, pb REAL, roe REAL, roa REAL, de REAL, rev_growth REAL,
         earn_growth REAL, op_margin REAL, div_yield REAL, mktcap REAL, sector TEXT)""")

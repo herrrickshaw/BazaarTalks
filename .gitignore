@@ -17,6 +17,9 @@ industry_cache.json.tmp
 viability*.db
 !viability_summary*.db
 *.db-journal
+*.db-shm
+*.db-wal
+logs/
 
 # SEC EDGAR fundamentals cache (compact SQLite, rebuilt on demand)
 edgar_cache/
