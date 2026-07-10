@@ -35,6 +35,11 @@ import numpy as np
 import pandas as pd
 
 SEED = os.path.expanduser("~/Downloads/code/python_files/cache_seed")
+# India's seed lives inside this repo (cache_seed_local/, via build_india_seed.py
+# — see warehouse.py's SEED_LOCAL for why: the external SEED tree above is
+# shared with a parallel session that has previously wiped India collections
+# there, so India's data survives under this repo's own git history instead).
+SEED_LOCAL = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cache_seed_local")
 
 # universe-filter defaults (a stock is "liquid" if in the top (1−LIQ_QUANTILE) by
 # trailing median dollar-volume, with at least MIN_HISTORY of price history).
@@ -44,15 +49,21 @@ MIN_HISTORY = 250
 
 # ── data access ───────────────────────────────────────────────────────────────
 def market_list() -> list:
-    """Every market code that has a cleaned_long_<code>.parquet in the cache."""
-    if not os.path.isdir(SEED):
-        return []
-    return [f.split("cleaned_long_")[1].split(".")[0]
-            for f in sorted(os.listdir(SEED)) if f.startswith("cleaned_long_")]
+    """Every market code that has a cleaned_long_<code>.parquet in the cache
+    (checks both the external SEED tree and this repo's local India seed)."""
+    codes = set()
+    for d in (SEED, SEED_LOCAL):
+        if os.path.isdir(d):
+            codes.update(f.split("cleaned_long_")[1].split(".")[0]
+                         for f in os.listdir(d) if f.startswith("cleaned_long_"))
+    return sorted(codes)
 
 
 def _parquet(market: str) -> str:
-    return os.path.join(SEED, f"cleaned_long_{market}.parquet")
+    p = os.path.join(SEED, f"cleaned_long_{market}.parquet")
+    if os.path.exists(p):
+        return p
+    return os.path.join(SEED_LOCAL, f"cleaned_long_{market}.parquet")
 
 
 def wide(market: str, fields=("Close", "High", "Low", "Volume")):

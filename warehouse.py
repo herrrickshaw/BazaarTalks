@@ -40,6 +40,12 @@ import incremental   # F9.1 partition-incremental refresh (pure pandas helpers)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SEED = os.path.expanduser("~/Downloads/code/python_files/cache_seed")
+# India's seed lives inside this repo (cache_seed_local/, via build_india_seed.py),
+# not the external SEED tree above — that directory is shared with a parallel
+# session that has previously wiped untracked/gitignored files there (a
+# documented prior loss of India collections specifically), so India's data
+# survives under this repo's own git history instead.
+SEED_LOCAL = os.path.join(HERE, "cache_seed_local")
 DB = os.path.join(HERE, "market.duckdb")
 
 # SQLite result DBs to attach (alias -> (file, {view: table}))
@@ -53,13 +59,18 @@ SQLITE_SOURCES = {
 
 def build(con):
     con.execute("INSTALL sqlite; LOAD sqlite;")
-    # OHLC across all markets, market derived from the parquet filename
-    glob = os.path.join(SEED, "cleaned_long_*.parquet")
+    # OHLC across all markets, market derived from the parquet filename.
+    # Two glob roots unioned: the external 18-market seed, plus this repo's
+    # own cache_seed_local/ (India — see SEED_LOCAL above for why it's separate).
+    globs = [os.path.join(SEED, "cleaned_long_*.parquet")]
+    if os.path.isdir(SEED_LOCAL) and os.listdir(SEED_LOCAL):
+        globs.append(os.path.join(SEED_LOCAL, "cleaned_long_*.parquet"))
+    glob_list = "[" + ", ".join(f"'{g}'" for g in globs) + "]"
     con.execute(f"""
         CREATE OR REPLACE VIEW ohlc AS
         SELECT Symbol AS ticker, Date, Open, High, Low, Close, Volume,
                regexp_extract(filename, 'cleaned_long_([A-Za-z]+)\\.parquet', 1) AS market
-        FROM read_parquet('{glob}', filename=true)
+        FROM read_parquet({glob_list}, filename=true)
     """)
     ci = os.path.join(HERE, "companies_industry.parquet")
     if os.path.exists(ci):
