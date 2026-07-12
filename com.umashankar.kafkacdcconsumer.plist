@@ -12,7 +12,13 @@
 
   Status / logs:
     launchctl print gui/$(id -u)/com.umashankar.kafkacdcconsumer
-    tail -f ~/repos/global-market-scanners/kafka_cdc_consumer.log
+    tail -f ~/BazaarTalks/kafka_cdc_consumer.log
+
+  NOTE (2026-07-12): originally pointed at ~/Downloads/code/python_files/.venv_eu,
+  which no longer exists (a parallel session periodically wipes that tree -- see
+  the "Downloads tree hazard" note), and at ~/repos/global-market-scanners (a
+  stale clone). Repointed to the CommandLineTools system python3 (has
+  confluent_kafka 2.14.2 installed) and the real deployed repo, ~/BazaarTalks.
 -->
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -20,15 +26,15 @@
   <key>Label</key><string>com.umashankar.kafkacdcconsumer</string>
   <key>ProgramArguments</key>
   <array>
-    <string>/Users/umashankar/Downloads/code/python_files/.venv_eu/bin/python3</string>
-    <string>/Users/umashankar/repos/global-market-scanners/kafka_cdc_consumer.py</string>
+    <string>/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/Resources/Python.app/Contents/MacOS/Python</string>
+    <string>/Users/umashankar/BazaarTalks/kafka_cdc_consumer.py</string>
     <string>--window</string>
     <string>30</string>
   </array>
-  <key>WorkingDirectory</key><string>/Users/umashankar/repos/global-market-scanners</string>
+  <key>WorkingDirectory</key><string>/Users/umashankar/BazaarTalks</string>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
-  <key>StandardOutPath</key><string>/Users/umashankar/repos/global-market-scanners/kafka_cdc_consumer.log</string>
-  <key>StandardErrorPath</key><string>/Users/umashankar/repos/global-market-scanners/kafka_cdc_consumer.err.log</string>
+  <key>StandardOutPath</key><string>/Users/umashankar/BazaarTalks/kafka_cdc_consumer.log</string>
+  <key>StandardErrorPath</key><string>/Users/umashankar/BazaarTalks/kafka_cdc_consumer.err.log</string>
 </dict>
 </plist>

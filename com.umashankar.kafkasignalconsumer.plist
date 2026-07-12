@@ -8,6 +8,10 @@
     cp com.umashankar.kafkasignalconsumer.plist ~/Library/LaunchAgents/
     launchctl bootout   gui/$(id -u)/com.umashankar.kafkasignalconsumer 2>/dev/null
     launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.umashankar.kafkasignalconsumer.plist
+
+  NOTE (2026-07-12): repointed from the now-gone ~/Downloads/code/python_files/.venv_eu
+  and stale ~/repos/global-market-scanners clone to the CommandLineTools system
+  python3 (confluent_kafka 2.14.2) and the real deployed repo, ~/BazaarTalks.
 -->
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -15,15 +19,15 @@
   <key>Label</key><string>com.umashankar.kafkasignalconsumer</string>
   <key>ProgramArguments</key>
   <array>
-    <string>/Users/umashankar/Downloads/code/python_files/.venv_eu/bin/python3</string>
-    <string>/Users/umashankar/repos/global-market-scanners/kafka_signal_consumer.py</string>
+    <string>/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/Resources/Python.app/Contents/MacOS/Python</string>
+    <string>/Users/umashankar/BazaarTalks/kafka_signal_consumer.py</string>
     <string>--window</string>
     <string>5</string>
   </array>
-  <key>WorkingDirectory</key><string>/Users/umashankar/repos/global-market-scanners</string>
+  <key>WorkingDirectory</key><string>/Users/umashankar/BazaarTalks</string>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
-  <key>StandardOutPath</key><string>/Users/umashankar/repos/global-market-scanners/kafka_signal_consumer.log</string>
-  <key>StandardErrorPath</key><string>/Users/umashankar/repos/global-market-scanners/kafka_signal_consumer.err.log</string>
+  <key>StandardOutPath</key><string>/Users/umashankar/BazaarTalks/kafka_signal_consumer.log</string>
+  <key>StandardErrorPath</key><string>/Users/umashankar/BazaarTalks/kafka_signal_consumer.err.log</string>
 </dict>
 </plist>
