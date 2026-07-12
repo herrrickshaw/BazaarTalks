@@ -31,6 +31,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import math
 import os
 import sys
 
@@ -133,6 +134,36 @@ _TICKER_JOIN_VIEWS = {
 }
 
 
+def json_safe(value):
+    """Recursively replace NaN/+-Infinity with None.
+
+    Real fundamentals data legitimately has undefined ratios (a non-dividend
+    stock's div_yield, a divide-by-zero P/E, ...), which pandas represents as
+    float('nan'). Two independent consumers need this normalized to None
+    rather than a bare NaN:
+      - JSON encoders that reject non-finite floats outright (Starlette's
+        default JSONResponse passes `allow_nan=False`, so any route
+        returning a DataFrame with a NaN anywhere crashes the whole request
+        with "Out of range float values are not JSON compliant" -- found by
+        running the real /filter endpoint against real production data,
+        where BRK-B's div_yield is NaN because it pays no dividend).
+      - ticker_view.py's `_card()`, which checks `if value is None` to
+        decide whether to show "n/a" -- a bare NaN fails that check (NaN is
+        not None) and would display the literal text "nan" instead.
+    Operates on whatever to_dict()/to_dict("records") already produced (a
+    dict, or a list of dicts), not on the DataFrame itself, to sidestep
+    pandas' object-dtype casting quirks when mixing NaN and None in the same
+    column.
+    """
+    if isinstance(value, float) and not math.isfinite(value):
+        return None
+    if isinstance(value, dict):
+        return {k: json_safe(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [json_safe(v) for v in value]
+    return value
+
+
 def ticker_detail(con, ticker: str, market: str, bars: int = 60) -> dict:
     """
     Single-ticker lookup across every view the warehouse currently has built —
@@ -151,7 +182,7 @@ def ticker_detail(con, ticker: str, market: str, bars: int = 60) -> dict:
             "WHERE ticker = ? AND market = ? ORDER BY Date DESC LIMIT ?",
             [ticker, market, bars],
         ).df()
-        result["ohlc"] = df.to_dict("records")
+        result["ohlc"] = json_safe(df.to_dict("records"))
     else:
         result["ohlc"] = []
 
@@ -163,7 +194,7 @@ def ticker_detail(con, ticker: str, market: str, bars: int = 60) -> dict:
             f"SELECT * FROM {view} WHERE ticker = ? AND market = ? LIMIT 1",
             [ticker, market],
         ).df()
-        result[key] = row.to_dict("records")[0] if not row.empty else None
+        result[key] = json_safe(row.to_dict("records")[0]) if not row.empty else None
 
     return result
 

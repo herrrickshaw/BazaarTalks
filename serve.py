@@ -90,48 +90,72 @@ def create_app():
 
     @app.get("/markets")
     def markets():
+        import warehouse
         con = _connect()
         try:
-            return con.execute(build_query("markets")).df().to_dict("records")
+            # json_safe: a NaN anywhere in the result (a real, expected
+            # occurrence in financial ratio data, not corruption) crashes
+            # Starlette's default JSONResponse outright (`allow_nan=False`)
+            # -- found by running /filter against real production data.
+            return warehouse.json_safe(con.execute(build_query("markets")).df().to_dict("records"))
         finally:
             con.close()
 
     @app.get("/ggg")
     def ggg(market: Optional[str] = None, limit: int = 25):
+        import warehouse
         con = _connect()
         try:
             q = build_query("ggg", limit)
             if market:
                 q = q.replace("WHERE code='GGG'", f"WHERE code='GGG' AND market='{market}'")
-            return con.execute(q).df().to_dict("records")
+            return warehouse.json_safe(con.execute(q).df().to_dict("records"))
         finally:
             con.close()
 
     @app.get("/screen/{name}")
     def screen(name: str, limit: int = 25):
+        import warehouse
         try:
             q = build_query(name, limit)
         except KeyError as e:
             raise HTTPException(404, str(e))
         con = _connect()
         try:
-            return con.execute(q).df().to_dict("records")
+            return warehouse.json_safe(con.execute(q).df().to_dict("records"))
         finally:
             con.close()
 
     @app.get("/filter")
     def filter_(predicate: str = Query(...), limit: int = 30):
+        import warehouse
         try:
             pred = validate_predicate(predicate)
         except ValueError as e:
             raise HTTPException(400, str(e))
         con = _connect()
         try:
+            # dvm_composite now carries its own roe/de/pe (denormalized at
+            # DVM-composite build time), which collide with fundamentals'
+            # identically-named columns once joined -- an unqualified
+            # predicate like "roe>15" (validate_predicate's allow-list has
+            # no way to accept a qualified "c.roe" either) used to raise
+            # DuckDB's "Ambiguous reference to column name" error. Fixed by
+            # joining only fundamentals' columns that DON'T already exist on
+            # dvm_composite, and reading roe/de/pe from dvm_composite's own
+            # copy (also what's actually displayed for those fields in the
+            # same row, so a predicate and its displayed values are now
+            # guaranteed consistent, rather than potentially filtering on
+            # one snapshot and showing another).
             q = (f"SELECT c.market, c.ticker, c.D, c.V, c.M, c.composite, c.code, "
-                 f"f.roe, f.de, f.pe FROM dvm_composite c "
-                 f"LEFT JOIN fundamentals f ON c.ticker=f.ticker "
+                 f"c.roe, c.de, c.pe, "
+                 f"f.pb, f.roa, f.rev_growth, f.earn_growth, f.op_margin, f.div_yield, f.mktcap "
+                 f"FROM dvm_composite c "
+                 f"LEFT JOIN (SELECT ticker, pb, roa, rev_growth, earn_growth, op_margin, "
+                 f"                  div_yield, mktcap FROM fundamentals) f "
+                 f"  ON c.ticker=f.ticker "
                  f"WHERE {pred} ORDER BY c.composite DESC LIMIT {int(limit)}")
-            return con.execute(q).df().to_dict("records")
+            return warehouse.json_safe(con.execute(q).df().to_dict("records"))
         finally:
             con.close()
 
