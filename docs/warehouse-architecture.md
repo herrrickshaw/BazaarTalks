@@ -15,11 +15,11 @@ The warehouse **already has a star schema** — `ohlcv_history` as the fact tabl
 ever loaded into it, while a second, denormalized copy of India grew up beside it.
 
 | Market  | Dim stocks | Fact rows | Fact coverage                  | State  |
+| india   |      8,986 | 1,272,402 | 2025-06-10 → 2026-07-13        | **loaded 2026-07-15** |
 |---------|-----------:|----------:|--------------------------------|--------|
 | china   |      5,825 |   825,082 | 2011-01-04 → 2026-07-06        | loaded |
 | japan   |      3,709 |         0 | —                              | empty  |
 | korea   |      3,184 |         0 | —                              | empty  |
-| india   |      2,415 |         0 | 1.9M rows stranded in staging  | empty  |
 | usa     |      1,521 |         0 | —                              | empty  |
 | europe  |      1,442 |         0 | —                              | empty  |
 | uk      |      1,042 |         0 | —                              | empty  |
@@ -45,17 +45,33 @@ ingest appends **0 rows** — a market/date already present is never re-inserted
 
 ## 3. What the audit found
 
-### Dimension tickers hold company names — *data quality, blocking*
-`stocks.ticker` is populated with names rather than symbols for part of the dimension —
-`Marico Ltd`, `Jubilant FoodWorks Ltd`. Any staging→fact join on ticker silently drops these rows.
+### Name-as-ticker rows were a red herring — *resolved*
+The obvious reading — `stocks.ticker` holding `Marico Ltd` instead of `MARICO` — looked like it
+would break the staging→fact join. **It didn't.** Those 35 India rows were *duplicate orphans*: a
+correct `MARICO` row already existed, and the bad row carried **0 facts and 0 fundamentals**. A
+join on `ticker = symbol` never matches them. They were inert, and are now deleted.
 
-Name-like tickers: **korea 416 · europe 93 · india 35 · china 1**. India still matched 2,328 of
-2,746 bhavcopy symbols, so the dimension is *mixed*, not uniformly broken — which is worse,
-because it fails quietly.
+A *rename* would in fact have **failed** — `UNIQUE (ticker, market_id)` collides with the real row.
+Still open elsewhere: **korea 416 · europe 93**.
 
-### Two parallel stores for the same market — *duplication*
-India exists twice: 9.5M denormalized rows in `bhavcopy.*`, and an empty slot in the fact table.
-Nothing reconciles them. The silo is the thing the star schema was built to prevent.
+### The real silent-drop risk: 6,606 missing dim rows — *was blocking, now fixed*
+The cleaned India series carries **8,974** symbols; the dimension held **2,368**. The other
+**6,606** had no dim row at all — an inner join would have dropped their history without a single
+error, producing a warehouse that looked complete and wasn't. Fixed by conforming the dimension
+from NSE/BSE's own `TckrSymb` + `FinInstrmNm` + `ISIN`.
+
+### NSE/BSE symbol collision — *correctness trap*
+BSE uses the **same bare symbol format** as NSE, and **2,534 symbols exist on both**. `dim_stock`
+draws no exchange distinction inside `market_id = 1`, so loading the combined `bhavcopy_ohlcv`
+would hit `UNIQUE (stock_id, date)` and `ON CONFLICT DO NOTHING` would silently keep whichever
+exchange's close arrived first — NSE or BSE, arbitrarily. Avoided by loading `cleaned_ohlcv`,
+where NSE precedence is already resolved (verified **0** duplicate (symbol,date) pairs across
+1,272,402 rows before it was trusted).
+
+### Fuzzy name matching is not safe here — *method*
+Matching dimension names against exchange names fanned out: 35 rows produced 39 matches, with
+`LTIMindtree` resolving to both `LTIM` and `LTM`. Identity comes from the exchange's own symbol
+and ISIN, not string similarity.
 
 ### No `dim_date` — *missing*
 Date attributes (trading day, fiscal period, exchange holiday) have nowhere to live, so calendar
@@ -191,13 +207,16 @@ they have no `.idx` and cannot be read.
 | Staging — US/EU/JP/KR   | done      | dated snapshots, idempotent append                 |
 | Freshness ledger        | done      | `market_daily.ingest_log` + status view            |
 | Integrity baseline      | done      | 3,331 files SHA256'd; caught a live 35-file wipe   |
+| India dim conformed     | **done**  | +6,606 rows, 2,812 enriched, 35 orphans dropped, 8,974 with ISIN |
+| India fact load         | **done**  | 1,272,402 rows · 0 unmapped · source count = loaded count |
 | `dim_date`              | designed  | DDL above; not yet created                         |
-| Ticker repair           | blocking  | 545 name-as-ticker rows must be fixed first        |
-| Fact load               | blocked   | depends on ticker repair                           |
 | Partitioning            | designed  | range-by-year; no extension needed                 |
+| Ticker repair — KR/EU   | open      | korea 416, europe 93 name-like rows still to clean |
+| US/EU/JP/KR fact load   | not started | scans emit snapshots, not OHLCV history — needs a series source |
 
-The ticker repair gates the fact load, and it should: joining 9.5M rows through a dimension that
-silently drops 545 of them would produce a warehouse that looks complete and isn't.
+India reconciles exactly: 1,272,402 rows in the source, 1,272,402 in the fact table, 0 symbols
+unmapped, RELIANCE's closes matching the source to the paisa. The remaining four geographies
+cannot be loaded the same way — their scans produce a daily snapshot, not a price history.
 
 ---
 
