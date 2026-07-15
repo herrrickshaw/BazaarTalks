@@ -3,29 +3,31 @@
 *Audited 2026-07-15 against `market_data` · PostgreSQL 16.14 (Homebrew). All row counts,
 index definitions and duplicate checks below are live query results, not estimates.*
 
-An audit of the multi-market OHLCV warehouse behind the daily brief, and a date-partitioned
-star schema to replace the parallel silos it grew instead.
+An audit of the multi-market OHLCV warehouse behind the daily brief, and the conforming load
+that finally connected India's 1.27M rows to the star schema built for them and never used.
 
 ---
 
 ## 1. Where the data actually is
 
-The warehouse **already has a star schema** — `ohlcv_history` as the fact table, `stocks` and
-`markets` as dimensions. Its shape is not the problem. The problem is that almost nothing was
-ever loaded into it, while a second, denormalized copy of India grew up beside it.
+The warehouse **already had a star schema** — `ohlcv_history` as the fact table, `stocks` and
+`markets` as dimensions. Its shape was never the problem. The problem was that almost nothing had
+ever been loaded into it, while a second, denormalized copy of India grew up beside it. India is
+now conformed and loaded; six geographies remain empty.
 
-| Market  | Dim stocks | Fact rows | Fact coverage                  | State  |
-| india   |      8,986 | 1,272,402 | 2025-06-10 → 2026-07-13        | **loaded 2026-07-15** |
-|---------|-----------:|----------:|--------------------------------|--------|
-| china   |      5,825 |   825,082 | 2011-01-04 → 2026-07-06        | loaded |
-| japan   |      3,709 |         0 | —                              | empty  |
-| korea   |      3,184 |         0 | —                              | empty  |
-| usa     |      1,521 |         0 | —                              | empty  |
-| europe  |      1,442 |         0 | —                              | empty  |
-| uk      |      1,042 |         0 | —                              | empty  |
-| germany |        173 |         0 | —                              | empty  |
+| Market  | Dim stocks | Fact rows | Fact coverage           | State                 |
+|---------|-----------:|----------:|-------------------------|-----------------------|
+| india   |      8,986 | 1,272,402 | 2025-06-10 → 2026-07-13 | **loaded 2026-07-15** |
+| china   |      5,825 |   825,082 | 2011-01-04 → 2026-07-06 | loaded                |
+| japan   |      3,709 |         0 | —                       | empty                 |
+| korea   |      3,184 |         0 | —                       | empty                 |
+| usa     |      1,521 |         0 | —                       | empty                 |
+| europe  |      1,442 |         0 | —                       | empty                 |
+| uk      |      1,042 |         0 | —                       | empty                 |
+| germany |        173 |         0 | —                       | empty                 |
 
-The dimension is populated for every geography; the fact table for exactly one.
+Before this load the dimension was populated for every geography and the fact table for exactly
+one (China). India's 1.27M rows now reach the fact table they were always meant to.
 
 ## 2. Market-wise freshness ledger
 
@@ -125,8 +127,9 @@ Order matters — each step depends on the one before it.
 
 1. **Land** — write the raw batch to staging with its source filename and trade date. Never
    transform on the way in.
-2. **Conform** — upsert unseen symbols into `dim_stock`, keyed by `(market_id, ticker)`. Repair
-   the name-as-ticker rows *before* this becomes the join key for 9.5M rows.
+2. **Conform** — upsert unseen symbols into `dim_stock`, keyed by `(market_id, ticker)`, taking
+   name and ISIN from the exchange's own record. This is the step that matters: a *missing* dim
+   row drops its history silently on the join.
 3. **Append** — insert into the fact table with `ON CONFLICT (stock_id, date) DO NOTHING`.
    Idempotent by construction.
 4. **Log** — record market, last data date, rows appended, status. The ledger is the contract
