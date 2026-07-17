@@ -206,7 +206,20 @@ def _bse_session() -> requests.Session:
 
 
 def fetch_bse_only_symbols(nse_set: set) -> list[str]:
-    """Return BSE Active Equity symbols not in the NSE universe, via bseindia."""
+    """Return BSE Active Equity symbols not in the NSE universe, via bseindia.
+
+    Symbol-list notes (verified 2026-06-30 against the live libraries; adapted &
+    corrected from a Colab-notebook change-log whose functions don't live here):
+      • This function reads the BSE securities API CSV directly — its columns are
+        title-cased with spaces: 'Security Id', 'Status', 'Instrument'
+        (we filter Status=='Active' & Instrument=='Equity'). Already correct
+        below, documented here so it doesn't get "fixed" back to the wrong path.
+      • The alternative helper bseindia.libutil.all_listed_securities() returns
+        DIFFERENT, lowercase columns — VERIFIED: security_code, issuer_name, symbol,
+        security_name, status, group, face_value, isin_no, instrument. So uppercase
+        SCRIP_CD / STATUS / GROUP / SCRIP_NAME are WRONG for that path; use
+        security_code / status / group / security_name.
+    """
     for attempt in range(3):
         try:
             sess = _bse_session()
