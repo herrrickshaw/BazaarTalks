@@ -255,3 +255,37 @@ On-chain analytics (active addresses, exchange flows, MVRV) live behind [Glassno
 ---
 
 *Broker packages (§12) require live API credentials and, for Kite Connect, a paid subscription. OANDA's v20 API (§21) requires a registered fxTrade account. Aggregator APIs (§19), CoinGecko/CoinMarketCap (§20), and Tadawul/JSE sources (§18) are freemium — free tiers are rate- or delay-limited, not full replacements for paid data. None of these packages were installed or executed as part of compiling this registry — verify before depending on any of them in production.*
+
+---
+
+## Appendix — relevance by repo
+
+Audited 2026-07-17 across the seven repos this file is checked into. "Relevant" means the
+category matches what the repo's code actually does today or plausibly should; it does not
+mean the repo currently imports every package in that section. See each package's row above
+for install commands.
+
+Two patterns held across every repo in this audit:
+
+- **All backtesting, portfolio-risk, and technical-indicator math is hand-rolled in
+  pandas/numpy.** None of the seven import `pandas-ta`, `vectorbt`, `backtrader`,
+  `PyPortfolioOpt`, `QuantStats`, or `vollib`, despite doing exactly the work those packages
+  exist for.
+- **Crypto (§20) and forex-as-an-asset-class (§21) are unused everywhere.** The one `fx.py`
+  module that exists (BazaarTalks / global-market-scanners) does currency *conversion* for
+  cross-market comparison, not forex trading/data.
+
+| Repo | Already imports | Relevant categories | Biggest gap / upgrade candidate |
+|---|---|---|---|
+| **market-pipeline** (home repo) | yfinance, akshare, FinanceDataReader, kiteconnect / upstox-python-sdk / smartapi-python | §1, §3, §4, §8, §10, §12 | Portfolio optimizer is hand-rolled MPT → **PyPortfolioOpt** (§8) is a near-drop-in upgrade |
+| **BazaarTalks** | yfinance (~27 files), nsepython, bseindia, kabupy, pykrx, sklearn, playwright, duckdb, Cassandra/Kafka/Flink | §1, §2, §4, §5, §6–11, §13; §3/§14–18 only via yfinance suffixes today | Hand-rolled TA + options IV + portfolio/risk → **pandas-ta** (§6), **vollib** (§10), **PyPortfolioOpt** (§8) all directly applicable; **akshare** / **twstock** / **fundamentus** would replace suffix-only coverage of China / Taiwan / Brazil |
+| **BazaarTalks-cpp** | C++ native (132 files) + yfinance, nsepython, kabupy/pykrx, sklearn (Python sidecar only) | §1, §2, §4, §5, §9, §11, §13 | §6–8 (TA / backtest / portfolio) are already ported to C++ — don't reintroduce Python libs there |
+| **global-market-data** | yfinance, nsepython/bseindia, investpy, sklearn, direct EDGAR `requests` | §1, §2, §3, §4, §5, §6, §7, §13, §14–16, §18–19 | Broadest footprint of any repo; direct-`requests` EDGAR calls → **edgartools** / **sec-edgar-api** (§5) would cut boilerplate |
+| **global-market-scanners** *(archived, read-only)* | yfinance, nsepython/bseindia, kabupy, pykrx, sklearn, duckdb, Cassandra/Kafka/Flink | §1, §2, §4, §5, §6–9, §11, §13 | Stale / superseded — not worth investing upgrade effort here |
+| **global-stock-screener** | yfinance, nsepython/nse/bseindia, investpy, sklearn, direct EDGAR `requests` | §1, §2, §5, §13, §19; marginal §3/§4/§14/§15 via yfinance only | Same EDGAR-boilerplate gap as global-market-data |
+| **piotroski-liquidity-research** | duckdb, numpy, pandas only — no fetchers at all | §2, §5, §6, §7, §9, §13 | Doesn't fetch data itself (reads sibling repos' Parquet caches) — correctly has no direct package needs beyond what it already has |
+
+**Cross-repo pattern worth acting on:** `global-market-data`, `global-stock-screener`, and
+`global-market-scanners` independently re-implement near-identical EDGAR-`requests` and
+India-bhavcopy fetch logic. That's a dedup/consolidation candidate, not a package gap — no
+new PyPI dependency fixes it.
