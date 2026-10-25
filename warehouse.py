@@ -58,13 +58,23 @@ SQLITE_SOURCES = {
 }
 
 
+def _is_lfs_pointer(path: str) -> bool:
+    """True for an un-smudged Git LFS pointer (a ~130-byte text file named *.parquet)."""
+    try:
+        with open(path, "rb") as fh:
+            return fh.read(40).startswith(b"version https://git-lfs")
+    except OSError:
+        return False
+
+
 def build(con):
     con.execute("INSTALL sqlite; LOAD sqlite;")
     # OHLC across all markets, market derived from the parquet filename.
     # Two glob roots unioned: the external 18-market seed, plus this repo's
     # own cache_seed_local/ (India — see SEED_LOCAL above for why it's separate).
     globs = [os.path.join(SEED, "cleaned_long_*.parquet")]
-    if os.path.isdir(SEED_LOCAL) and os.listdir(SEED_LOCAL):
+    if os.path.isdir(SEED_LOCAL) and any(
+            not _is_lfs_pointer(os.path.join(SEED_LOCAL, f)) for f in os.listdir(SEED_LOCAL)):
         globs.append(os.path.join(SEED_LOCAL, "cleaned_long_*.parquet"))
     glob_list = "[" + ", ".join(f"'{g}'" for g in globs) + "]"
     con.execute(f"""
@@ -74,7 +84,7 @@ def build(con):
         FROM read_parquet({glob_list}, filename=true)
     """)
     ci = os.path.join(HERE, "companies_industry.parquet")
-    if os.path.exists(ci):
+    if os.path.exists(ci) and not _is_lfs_pointer(ci):
         con.execute(f"CREATE OR REPLACE VIEW companies AS SELECT * FROM read_parquet('{ci}')")
     for alias, (fn, views) in SQLITE_SOURCES.items():
         path = os.path.join(HERE, fn)
@@ -119,7 +129,7 @@ SHOWS = {
                           "round(avg(M),1) avg_M, sum(CASE WHEN M>=70 THEN 1 ELSE 0 END) hi_mom "
                           "FROM dvm_global GROUP BY 1 ORDER BY hi_mom DESC",
     "high_roe_low_de": "SELECT market, ticker, round(roe,1) roe, round(de,2) de, round(pe,1) pe, sector "
-                       "FROM fundamentals WHERE roe>15 AND de<1 AND de IS NOT NULL "
+                       "FROM fundamentals WHERE roe>15 AND de>=0 AND de<1 "
                        "ORDER BY roe DESC LIMIT 25",
     "industry_segments": "SELECT segment, n_companies FROM (SELECT * FROM companies) "
                          "USING SAMPLE 0 ROWS",  # placeholder; companies has list cols
