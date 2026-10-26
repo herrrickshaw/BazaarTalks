@@ -88,6 +88,7 @@ def monotonicity(curve: pd.DataFrame, col: str = "median_fwd%") -> float:
 
 # ── data assembly (offline, point-in-time) ────────────────────────────────────
 from marketdata import wide as _wide
+import marketdata  # main() calls marketdata.market_list()
 
 
 def build_panel(market: str, horizon: int, sig_window: int = SIG_WINDOW) -> pd.DataFrame:
