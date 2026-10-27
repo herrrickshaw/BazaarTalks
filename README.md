@@ -36,7 +36,7 @@ across 19 markets, and a Cassandra/Kafka/Flink data backbone.
 | **HFT selection** | `hft_selection.py` | 4 HFT archetypes (market-making/stat-arb/latency/ETF-arb) as a Tier-1 picker from daily OHLC |
 | **Darvas × volume** | `darvas_volume.py` | Darvas-box monitor for volume acquisition (OBV/CMF/up-down vol) + HFT footprint; coils & breakouts |
 | **Watchlists** | `watchlists.py` | Two separate ranked lists — fundamentally strong (QMJ) and being accumulated (Darvas volume) — + intersection |
-| **Accumulation screener** | `accumulation_screener.py` | CMF + accumulation screen, validated vs 1m/6m forward returns (6m Q5−Q1 +10.8%, monotone) |
+| **Accumulation screener** | `accumulation_screener.py` | CMF + accumulation screen, tested against 1m/6m forward returns: quintiles rank in order at 6m (Q5−Q1 +10.8% gross, one forward window on ~1 year of data, so only the ordering is meaningful) |
 | **Corporate actions** | `corporate_actions.py` | Stock-split screener (yfinance-authoritative) + rights-issue/dilution candidate screener |
 | **Frontier factors** | `seasonality.py`, `peer_network.py`, `crowding.py`, `news_sentiment.py`, `options_iv.py`, `esg_screen.py` | The scout's 7 frontier gaps closed: calendar effects, peer lead-lag, crowding, news sentiment, option-implied, ESG |
 | **Earnings × liquidity** | `earnings_liquidity.py` | Conditions PEAD on liquidity/volume/price; announcement-day volume surge (median 3.8×) |
@@ -152,13 +152,13 @@ classification → fundamentals on breakout candidates → styled Excel export**
 - [Literature scout](SCOUT.md) — automated global research scout (OpenAlex/Crossref/arXiv) with research-gap detection
 - [PEAD factor](PEAD.md) — post-earnings-announcement drift; the scout→implement→covered loop closed
 - [Liquidity factor](LIQUIDITY.md) — Amihud illiquidity + liquidity premium; scout gap #2 closed
-- [Liquidity multi-year](LIQUIDITY.md#multi-year-test--the-premium-is-significant-liquidity_multiyearpy) — 10y Fama-MacBeth: liquidity premium +4.24%/qtr, t=2.16 (significant)
+- [Liquidity multi-year](LIQUIDITY.md#multi-year-test-liquidity_multiyearpy) — 10y Fama-MacBeth on 199 liquid US names: illiquid quintile +4.24%/qtr over liquid, t=2.16, gross of costs, single test. A later [re-test](https://github.com/herrrickshaw/global-market-scanners/blob/research/jd-signal-validation/SIGNAL_RESEARCH_RESULTS.md) on the ~1,500 most liquid US names (2017–2026) found the opposite sign at the same 63-day horizon (rank IC −0.041, t −2.8), so treat the premium as unconfirmed
 - [Data sources](DATA_SOURCES.md) — per-market public factor libraries (AQR/Ken French/IIMA IFFM); what the quality paper names
 - [Benchmark](BENCHMARK.md) — fetches real Ken French factors and validates our quality tilt against them (−HML, +Mom)
 - [HFT selection](HFT_SELECTION.md) — the four HFT archetypes as a Tier-1 stock picker from daily high-low-close-volume
 - [Darvas × volume](DARVAS_VOLUME.md) — Darvas-box monitor for stealth volume acquisition + HFT footprint (coils & volume-confirmed breakouts)
 - [Watchlists](WATCHLISTS.md) — separate fundamentally-strong & being-accumulated lists (+ intersection)
-- [Accumulation screener](ACCUMULATION_SCREENER.md) — CMF/accumulation screen validated against 1-month & 6-month forward returns
+- [Accumulation screener](ACCUMULATION_SCREENER.md) — CMF/accumulation screen tested against 1-month & 6-month forward returns (~1 year of data; ordering only)
 - [Corporate actions](CORPORATE_ACTIONS.md) — stock-split (yfinance) & rights-issue/dilution candidate screeners
 - [Frontier gaps](FRONTIER_GAPS.md) — the scout's 7 frontier themes all closed (seasonality/network/crowding/NLP/options/ESG/microstructure)
 - [Earnings × liquidity](EARNINGS_LIQUIDITY.md) — does liquidity/volume/price condition PEAD? (announcement volume surge + drift study)
