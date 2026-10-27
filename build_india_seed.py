@@ -52,7 +52,7 @@ def main():
     df = df.dropna(subset=["Date", "Symbol"]).sort_values(["Symbol", "Date"])
 
     os.makedirs(OUT_DIR, exist_ok=True)
-    df.to_parquet(OUT_FILE, index=False, compression="snappy")
+    df.to_parquet(OUT_FILE, index=False, compression="zstd", compression_level=19)
 
     print(f"wrote {OUT_FILE}")
     print(f"  {len(df):,} rows, {df['Symbol'].nunique():,} tickers, "
