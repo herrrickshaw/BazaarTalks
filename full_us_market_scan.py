@@ -49,6 +49,8 @@ from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
+
+import darvas_core
 import requests
 
 # Persistent cache (avoids re-downloading on subsequent runs)
@@ -378,68 +380,30 @@ def bulk_download_ohlc(tickers: list[str], period: str = "1y") -> dict[str, pd.D
 # ── Darvas Box ─────────────────────────────────────────────────────────────────
 
 def compute_darvas_box(df: pd.DataFrame, confirm: int = DARVAS_CONFIRM) -> dict:
-    """Darvas Box detection. Current bar excluded from box formation."""
-    def find_col(df, candidates):
-        for c in candidates:
-            m = next((col for col in df.columns if c.upper() in col.upper()), None)
-            if m:
-                return m
-        return None
-
-    h_col = find_col(df, ["High"])
-    l_col = find_col(df, ["Low"])
-    c_col = find_col(df, ["Close"])
+    """Darvas Box detection (fuzzy column match). Current bar excluded from box formation."""
+    h_col = darvas_core.find_col(df.columns, ["High"])
+    l_col = darvas_core.find_col(df.columns, ["Low"])
+    c_col = darvas_core.find_col(df.columns, ["Close"])
 
     if not all([h_col, l_col, c_col]) or len(df) < confirm + 5:
         return {"signal": "INSUFFICIENT_DATA", "box_top": None, "box_bottom": None}
 
-    all_highs  = pd.to_numeric(df[h_col], errors="coerce").fillna(0).tolist()
-    all_lows   = pd.to_numeric(df[l_col], errors="coerce").fillna(0).tolist()
-    all_closes = pd.to_numeric(df[c_col], errors="coerce").fillna(0).tolist()
+    all_highs  = darvas_core.numeric_list(df, h_col)
+    all_lows   = darvas_core.numeric_list(df, l_col)
+    all_closes = darvas_core.numeric_list(df, c_col)
 
     current = all_closes[-1]
-    highs   = all_highs[:-1]
-    lows    = all_lows[:-1]
-    n       = len(highs)
-
-    box_top_idx, box_top = None, None
-    for i in range(n - confirm - 1, -1, -1):
-        candidate = highs[i]
-        if candidate == 0:
-            continue
-        window = highs[i + 1: i + 1 + confirm]
-        if len(window) == confirm and all(h < candidate for h in window):
-            box_top_idx, box_top = i, candidate
-            break
+    box_top, box_bottom = darvas_core.find_box(all_highs[:-1], all_lows[:-1], confirm)
 
     if box_top is None:
         return {"signal": "NO_BOX", "box_top": None, "box_bottom": None,
                 "current_price": round(current, 2)}
-
-    segment    = lows[box_top_idx:]
-    box_bottom = None
-    for i in range(len(segment) - confirm):
-        candidate = segment[i]
-        if candidate == 0:
-            continue
-        window = segment[i + 1: i + 1 + confirm]
-        if len(window) == confirm and all(l > candidate for l in window):
-            box_bottom = candidate
-            break
-
-    if box_bottom is None:
-        valid = [l for l in segment if l > 0]
-        box_bottom = min(valid) if valid else None
-
     if box_bottom is None:
         return {"signal": "NO_BOX", "box_top": round(box_top, 2), "box_bottom": None,
                 "current_price": round(current, 2)}
 
-    signal = ("BREAKOUT_BUY" if current > box_top else
-              "BREAKDOWN_SELL" if current < box_bottom else "IN_BOX")
-    box_range     = box_top - box_bottom
-    upside_to_top = ((box_top - current) / current * 100) if current else 0
-    pos_in_box    = ((current - box_bottom) / box_range * 100) if box_range else 0
+    signal = darvas_core.classify(current, box_top, box_bottom)
+    box_range, upside_to_top, pos_in_box = darvas_core.box_geometry(current, box_top, box_bottom)
 
     return {
         "signal":              signal,
