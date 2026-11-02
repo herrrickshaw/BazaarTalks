@@ -1,184 +1,148 @@
-# Global Market Scanners & Multi-Market Quant Platform
+# BazaarTalks — Global Market Scanners & Multi-Market Quant Research
 
-<!-- how-to-use-with-ai -->
-> **New here?** See [How to use this repo with AI (Claude, Gemini, ChatGPT)](HOW_TO_USE_WITH_AI.md) — clone it, paste it into an AI tool, and ask in plain English.
+A research platform for multi-market equity screening, point-in-time backtesting and factor research.
+It scans the US, India, Japan, Korea and Europe for Darvas-box breakouts confirmed by Piotroski F-Score and
+Coffee-Can quality tests, scores 19 markets with Trendlyne-style DVM (Durability / Valuation / Momentum),
+and serves the results through a DuckDB warehouse, a FastAPI service and an SVG dashboard.
+Outputs are styled Excel workbooks, CSV/parquet tables, markdown research notes and an HTML dashboard.
 
+> Status: active research code. Educational use only; not investment advice. Backtests are pre-slippage
+> unless a document says otherwise; fundamentals are point-in-time only for the US (SEC EDGAR) and
+> current-snapshot elsewhere (yfinance). Retail-outlet / highway data lives in the separate
+> [`retail-outlet-monitoring`](https://github.com/herrrickshaw/retail-outlet-monitoring) and
+> [`fuel-retail-outlets`](https://github.com/herrrickshaw/fuel-retail-outlets) repos.
 
-A research platform for **multi-market equity screening, backtesting, and factor
-research** — spanning classic technical/fundamental scanners, a point-in-time
-backtesting engine, a hybrid ML screen-discovery layer, Trendlyne-style DVM scoring
-across 19 markets, and a Cassandra/Kafka/Flink data backbone.
-
-> **Scope:** stock-market research only. Retail-outlet / highway data lives in the
-> separate [`retail-outlet-monitoring`](https://github.com/herrrickshaw/retail-outlet-monitoring)
-> and [`fuel-retail-outlets`](https://github.com/herrrickshaw/fuel-retail-outlets) repos.
-
-📓 **New here?** Open the zero-install tour in Colab, or read the **[User Guide](USER_GUIDE.md)**.
-
-[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/herrrickshaw/global-market-scanners/blob/main/notebooks/DVM_Global_Colab.ipynb)
-
----
-
-## What's inside
-
-| Area | Modules | What it does |
-|---|---|---|
-| **Scanners** | `full_{us,indian,japan,korea,european}_market_scan.py` | Full-universe Darvas + Piotroski + Coffee-Can scans → styled Excel |
-| **ML signal** | `ml_signal_engine.py`, `ml_viability.py` | Ridge directional signal + 5-year cross-market viability |
-| **Screen viability** | `screen_viability.py`, `apply_costs.py` | Backtest the screener.in technical screens, net of tax+brokerage |
-| **Point-in-time backtest** | `pit_fundamentals.py`, `pit_backtest.py` | Lookahead-free Triple-Hit backtest (SEC EDGAR, filed-date filtered) |
-| **Factor research** | `factor_research.py` | Test Markowitz/Sharpe/Fama/Fama-French as falsifiable proposals |
-| **Quality factor (QMJ)** | `quality_factor.py` | AFP/QMJ quality factor (IIMA 2022) — profitability/growth/safety/payout, LQ/QMJ portfolios, price-premium test |
-| **Literature scout** | `literature_scout.py` | Scouts OpenAlex/Crossref/arXiv for equity research, scores vs implemented themes, flags research gaps |
-| **PEAD factor** | `pead_factor.py` | Post-earnings-announcement drift (the scout's top gap) — price-based event study + drift signal |
-| **Liquidity factor** | `liquidity_factor.py` | Amihud illiquidity + liquidity premium (scout gap #2) — capacity/tradeability score |
-| **Data sources & benchmark** | `data_sources.py`, `benchmark.py` | Per-market public factor libraries; fetches real Ken French factors + validates our quality tilt |
-| **HFT selection** | `hft_selection.py` | 4 HFT archetypes (market-making/stat-arb/latency/ETF-arb) as a Tier-1 picker from daily OHLC |
-| **Darvas × volume** | `darvas_volume.py` | Darvas-box monitor for volume acquisition (OBV/CMF/up-down vol) + HFT footprint; coils & breakouts |
-| **Watchlists** | `watchlists.py` | Two separate ranked lists — fundamentally strong (QMJ) and being accumulated (Darvas volume) — + intersection |
-| **Accumulation screener** | `accumulation_screener.py` | CMF + accumulation screen, validated vs 1m/6m forward returns (6m Q5−Q1 +10.8%, monotone) |
-| **Corporate actions** | `corporate_actions.py` | Stock-split screener (yfinance-authoritative) + rights-issue/dilution candidate screener |
-| **Frontier factors** | `seasonality.py`, `peer_network.py`, `crowding.py`, `news_sentiment.py`, `options_iv.py`, `esg_screen.py` | The scout's 7 frontier gaps closed: calendar effects, peer lead-lag, crowding, news sentiment, option-implied, ESG |
-| **Earnings × liquidity** | `earnings_liquidity.py` | Conditions PEAD on liquidity/volume/price; announcement-day volume surge (median 3.8×) |
-| **ML screen discovery** | `ml_screen_discovery.py` | Supervised → Unsupervised (new screens) → RL-from-screeners |
-| **DVM / Trendlyne** | `dvm_engine.py`, `dvm_global.py`, `fundamentals_global.py`, `dvm_composite.py` | Durability/Valuation/Momentum scoring + GGG classification across 19 markets |
-| **Decision layer** | `portfolio.py`, `risk.py`, `meta_screen.py`, `sector_rotation.py`, `alerts.py`, `unlisted_valuation.py` | Signals → constrained portfolios, risk/VaR, ensemble conviction, sector rotation, alerts, private-firm comps |
-| **Global rigor** | `pit_global.py`, `fx.py` | Price-based point-in-time backtest for 18 non-US markets + FX-normalised cross-market comparison |
-| **Serving & observability** | `serve.py`, `dashboard.py`, `incremental.py`, `feature_cache.py`, `data_quality.py` | FastAPI + HTML dashboard over the warehouse, partition-incremental refresh, ML feature cache, data-quality monitor |
-| **Dataset** | `build_industry_parquet.py`, `enrich_industries.py`, `unlisted_enrichment.py` | Industry/peer parquet + unlisted-firm enrichment |
-| **Data backbone** | `market_store.py` (Cassandra), `stream_pipeline.py` (Kafka), `flink_screens.py`, `cdc/` | Persistent OHLC cache, streaming, CDC |
-| **Utilities** | `market_holidays.py`, `market_data_cache.py`, `stock_utils.py`, `marketdata.py` | Trading calendars, caching, shared reusable blocks |
-| **Write surface (CRUD)** | `watchlist_store.py` (+ `serve.py` REST) | Versioned CRUD for watchlists — append-only, full history, soft-delete/restore/time-travel |
-
----
+## What it does
+- Full-universe scans per market (`full_{us,indian,japan,korea,european}_market_scan.py`): Darvas box +
+  Piotroski + Coffee-Can, exported to styled Excel. **Triple Hit** = Darvas breakout and F-Score >= 7/9 and
+  Coffee-Can pass (revenue CAGR > 10%, average ROCE > 15%, D/E < 1, positive earnings and FCF every year).
+- Lookahead-free US backtest from SEC EDGAR filings (`pit_fundamentals.py`, `pit_backtest.py`) and a
+  price-based point-in-time backtest for 18 other markets (`pit_global.py`).
+- Factor research: QMJ quality, PEAD, Amihud liquidity, seasonality, crowding, option-implied, ESG
+  (`quality_factor.py`, `pead_factor.py`, `liquidity_factor.py`, `factor_research.py`, ...).
+- Trendlyne-style DVM scoring and GGG/GGB/BBG classification across 19 markets
+  (`dvm_engine.py`, `dvm_global.py`, `fundamentals_global.py`, `dvm_composite.py`).
+- Decision layer: constrained portfolios, VaR, meta-screen conviction, sector rotation, alerts
+  (`portfolio.py`, `risk.py`, `meta_screen.py`, `sector_rotation.py`, `alerts.py`).
+- Serving: a DuckDB warehouse (`warehouse.py`), FastAPI REST + versioned watchlist CRUD (`serve.py`,
+  `watchlist_store.py`) and a dependency-free SVG dashboard (`dashboard.py`, `charts.py`).
 
 ## Quick start
-
 ```bash
+git clone https://github.com/herrrickshaw/BazaarTalks.git
+cd BazaarTalks
+python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-
-# 1) Scan a full market  ->  styled Excel workbook
-python full_indian_market_scan.py --top 200
-
-# 2) Trendlyne-style technical screen across all 19 markets (local data, no network)
-python dvm_global.py --screen trendlyne_technical
-
-# 3) Global DVM composite ranking (GGG/GGB/BBG)
-python fundamentals_global.py --top 40      # source fundamentals once (cached)
-python dvm_composite.py                       # fuse momentum + fundamentals -> ranking
-
-# 4) Point-in-time US backtest (does the fundamental gate add value?)
-python pit_backtest.py --universe scan --years 5
+python full_indian_market_scan.py --top 200      # scan one market -> styled Excel workbook
 ```
-
-See the **[User Guide](USER_GUIDE.md)** for the full workflow and every module.
-
-## Pipeline
-
-`pipeline.py` orchestrates the existing stages end to end — it wraps the modules
-above, it doesn't reimplement them:
-
+Other entry points (all local-data, no network unless noted):
 ```bash
-python pipeline.py --all US        # process (rebuild warehouse) -> validate
-                                     # (data_quality.py) -> analyze (DVM +
-                                     # accumulation screen) -> graphics (dashboard)
-python pipeline.py --source indian # run one market's scanner (slow/network; opt-in)
-python pipeline.py --validate      # data_quality.py alone, CI-gateable (non-zero exit on FAIL)
+python dvm_global.py --screen trendlyne_technical   # technical screen over 19 markets
+python fundamentals_global.py --top 40              # source fundamentals once (network, cached)
+python dvm_composite.py                             # GGG/GGB/BBG composite ranking
+python pit_backtest.py --universe scan --years 5    # point-in-time US backtest
+python pipeline.py --all US                         # warehouse -> validate -> analyze -> dashboard
+python pipeline.py --validate                       # data_quality.py alone; non-zero exit on FAIL
 ```
+Python 3.9+. The full [User Guide](USER_GUIDE.md) covers every module.
 
-Graphics are dependency-free SVG (`charts.py` — no matplotlib/plotly), embedded in
-`dashboard.py`/`ticker_view.py` and independently queryable via `GET /chart/ticker/{symbol}`
-on the `serve.py` API. Every stage skips gracefully (prints a note, doesn't crash) when a
-given view/cache isn't built locally yet — see `warehouse.ticker_detail()` and
-`dashboard._query_all()`.
+## How it works
+Every scanner runs the same five stages:
 
-### Live fundamentals (Trendlyne / Screener.in)
+| Stage | Module | Output |
+|---|---|---|
+| 1. Universe fetch | per-market `fetch_*` in `full_*_market_scan.py` | symbol list |
+| 2. Bulk OHLC | `stock_utils.bulk_download`, `market_data_cache.py`, `apiclient.py` | price frames |
+| 3. Darvas classification | `darvas_core.py` (shared kernel) via each scanner's `compute_darvas_box` | box top/bottom + signal |
+| 4. Fundamentals on candidates | `fundamental_scan()` per scanner, helpers in `stock_utils.py` | F-Score, Coffee-Can |
+| 5. Export | `save_excel` / `style_sheet` | styled `.xlsx` |
 
-`trendlyne_session.py` + `screener_session.py` pull real India fundamentals from
-your own paid accounts — cookie-authenticated, no password ever submitted by
-this code (see **[TRENDLYNE_SCREENER_ACCESS.md](TRENDLYNE_SCREENER_ACCESS.md)**
-for setup). `python pipeline.py --live IN --limit 50` backfills into
-`fundamentals_cache.db`, which the `fundamentals` warehouse view and
-`ticker_view.py`'s scorecard pick up automatically, source-badged.
+`pipeline.py` wraps these stages plus the warehouse build, data-quality gate, DVM + accumulation analysis and
+dashboard; each stage skips gracefully when a view or cache is not built locally.
 
----
+Key design decisions:
+- **Current bar is excluded from Darvas box formation**, so a breakout is never part of its own box.
+- **Each market keeps its own output shape.** The box-finding kernel is shared (`darvas_core.py`) but wrappers
+  preserve per-market column lookup, rounding (whole units for JPY/KRW) and result keys.
+- **Cache policy is separate from storage.** `ohlc_cache.py` holds the fresh / stale / miss rules behind an
+  `OhlcStore` protocol; `market_store.py` supplies the Cassandra store and publishes a Kafka CDC event on every
+  write. Cassandra and Kafka are mandatory there: failures raise `MarketStoreUnavailable` / `CDCPublishError`
+  instead of silently reverting to uncached yfinance calls.
+- **Charts are plain SVG** (`charts.py`), with no matplotlib/plotly dependency.
+- **Live India fundamentals** come from your own Trendlyne / Screener.in accounts via cookie sessions
+  (`trendlyne_session.py`, `screener_session.py`); no password is ever submitted by this code. See
+  [TRENDLYNE_SCREENER_ACCESS.md](TRENDLYNE_SCREENER_ACCESS.md); `python pipeline.py --live IN --limit 50`
+  backfills `fundamentals_cache.db`.
 
-## The core scan pipeline
+## Repository layout
+| Path | Purpose |
+|---|---|
+| `full_*_market_scan.py` | Five market scanners (US, India, Japan, Korea, Europe) |
+| `darvas_core.py`, `ohlc_cache.py`, `stock_utils.py`, `marketdata.py` | Shared pure building blocks |
+| `market_store.py`, `stream_pipeline.py`, `flink_screens.py`, `kafka_*_consumer.py`, `cdc/` | Cassandra / Kafka / Flink data backbone |
+| `dvm_*.py`, `fundamentals_global.py`, `pit_*.py`, `*_factor.py`, `factor_research.py` | Scoring, point-in-time and factor research |
+| `portfolio.py`, `risk.py`, `meta_screen.py`, `alerts.py`, `sector_rotation.py` | Decision layer |
+| `warehouse.py`, `serve.py`, `dashboard.py`, `charts.py`, `data_quality.py` | Serving and observability |
+| `tests/` | pytest suite (`test_core.py`, `test_darvas_core.py`, `test_ohlc_cache.py`, golden data) |
+| `architecture/`, `safe/` | TOGAF governance check and SAFe backlog (run in CI) |
+| `*.md` (root) | Per-module write-ups; index below |
+| `*.parquet`, `*.db`, `*.csv`, `cache_seed_local/` | Tracked datasets and small result stores |
 
-Each scanner runs the same 5 stages: **universe fetch → bulk OHLC → Darvas Box
-classification → fundamentals on breakout candidates → styled Excel export**.
-
-**Triple Hit** = Darvas breakout **+** Piotroski F-Score ≥ 7/9 **+** Coffee-Can pass
-(revenue CAGR > 10%, avg ROCE > 15%, D/E < 1, positive earnings every year, positive FCF).
-
-| Scanner | Market | Universe | Data source |
+## Data sources
+| Source | What is taken | Access route | Licence / caveat |
 |---|---|---|---|
-| `full_us_market_scan.py` | USA (NYSE + NASDAQ) | ~5,400 | yfinance + EDGAR |
-| `full_indian_market_scan.py` | India (NSE + BSE) | ~4,600 | nsepython + bseindia + yfinance |
-| `full_japan_market_scan.py` | Japan (TSE) | ~3,600 | kabupy + yfinance |
-| `full_korea_market_scan.py` | Korea (KOSPI + KOSDAQ) | ~2,600 | pykrx + yfinance |
-| `full_european_market_scan.py` | Europe (Euro Stoxx 50) | 50 | yfinance |
+| yfinance | OHLC and fundamentals, all markets | Python library | Unofficial Yahoo API; personal/research use |
+| SEC EDGAR | US point-in-time fundamentals (filed-date filtered) | public API | Public domain |
+| NSE / BSE | India universe and quotes | `nsepython`, `bseindia` | Exchange terms apply |
+| JPX / KRX | Japan and Korea universes | `kabupy`, `pykrx` | Third-party libraries, unpinned |
+| Trendlyne, Screener.in | India live fundamentals | your own paid account, cookie session | Account terms apply |
+| OpenAlex, Crossref, arXiv | Literature scout | public APIs | Open metadata |
+| Ken French / AQR | Factor benchmarks | public downloads | See [DATA_SOURCES.md](DATA_SOURCES.md) |
 
----
+## Configuration
+No secrets are committed. Credentials for Trendlyne/Screener.in are browser cookies you supply locally;
+Cassandra is expected at `127.0.0.1:9042` and Kafka at `$KAFKA_BOOTSTRAP` (default `localhost:9092`).
+`marketdata.SEED` points at a local parquet cache under `~/Downloads/...`; India's seed is in `cache_seed_local/`.
+
+## Testing
+```bash
+pip install pytest pandas numpy scipy scikit-learn requests   # plus yfinance/openpyxl for scanner tests
+pytest -q            # 139 tests; no network, Cassandra or Kafka required
+```
+`tests/golden/darvas_golden.json` pins each scanner's `compute_darvas_box` output (captured from the
+pre-refactor code) on deterministic synthetic panels. Scanner tests stub `bseindia` / `pykrx` when absent.
+
+## Limitations and known issues
+- Outside the US fundamentals are a snapshot of today, so non-US factor sizes are directional only.
+- All backtest returns are before trading costs unless a document says otherwise ([NET_OF_COST.md](NET_OF_COST.md)).
+- Universes are current constituents (survivorship bias); see [REMEDIATION.md](REMEDIATION.md), `survivorship.py`.
+- `CHECKSUMS.sha256` covers only part of the tracked tree, so the CI integrity step is not a reliable gate.
+- Repo-wide `ruff check` reports about 100 pre-existing findings in legacy modules; the new modules are clean.
+- Some modules read absolute `~/Downloads/...` paths on the author's machine and will need a local data tree.
+- Stray QA render images (`cv-4.jpg`, `rm-15.jpg`) are tracked in the root; they are manuscript page renders.
 
 ## Documentation index
+- Guides: [User Guide](USER_GUIDE.md), [Glossary](GLOSSARY.md), [Architecture](ARCHITECTURE.md),
+  [Architecture map](ARCHITECTURE_MAP.md), [Schema](SCHEMA.md), [Warehouse](WAREHOUSE.md), [Infra](INFRA.md),
+  [SDLC](SDLC.md), [Security](SECURITY.md), [Performance](PERFORMANCE.md), [TOGAF](architecture/TOGAF.md),
+  [SAFe](safe/SAFE.md), [Watchlist store](WATCHLIST_STORE.md), [CDC deployment](cdc/CDC_DEPLOYMENT.md)
+- Screening: [Screens](SCREENS.md), [Global DVM](GLOBAL_DVM.md), [Fundamental screen](FUNDAMENTAL_SCREEN.md),
+  [DVM composite](DVM_COMPOSITE.md), [ML screen discovery](ML_SCREEN_DISCOVERY.md)
+- Research: [Paper](RESEARCH_PAPER.md), [detailed](RESEARCH_PAPER_DETAILED.md), [simple](RESEARCH_PAPER_SIMPLE.md),
+  [Screen viability](SCREEN_VIABILITY_RESULTS.md), [PIT scope](SCOPE_PIT_FUNDAMENTALS.md),
+  [PIT results](PIT_BACKTEST_RESULTS.md), [ML viability](ML_VIABILITY.md), [Factor research](FACTOR_RESEARCH.md),
+  [Quality (QMJ)](QUALITY_FACTOR.md), [Scout](SCOUT.md), [PEAD](PEAD.md), [Liquidity](LIQUIDITY.md),
+  [Benchmark](BENCHMARK.md), [HFT selection](HFT_SELECTION.md), [Darvas x volume](DARVAS_VOLUME.md),
+  [Watchlists](WATCHLISTS.md), [Accumulation](ACCUMULATION_SCREENER.md), [Corporate actions](CORPORATE_ACTIONS.md),
+  [Frontier gaps](FRONTIER_GAPS.md), [Earnings x liquidity](EARNINGS_LIQUIDITY.md),
+  [Decision layer](DECISION_LAYER.md), [Net of cost](NET_OF_COST.md)
+- Using this repo with an AI assistant: [HOW_TO_USE_WITH_AI.md](HOW_TO_USE_WITH_AI.md)
+- Zero-install tour: [Colab notebook](https://colab.research.google.com/github/herrrickshaw/global-market-scanners/blob/main/notebooks/DVM_Global_Colab.ipynb)
 
-**Guides**
-- [User Guide](USER_GUIDE.md) — end-to-end workflows for every capability
-- [Research paper](RESEARCH_PAPER.md) — full write-up: approach, data, assumptions, abstract & cross-market results
-- [Glossary of reusable blocks](GLOSSARY.md) — the shared `marketdata.py` library + each module's pure functions
-- [Watchlist store](WATCHLIST_STORE.md) — application-level versioned CRUD for watchlists (append-only) behind the serve.py REST endpoints
-- [Security & Integrity](SECURITY.md) — signed commits, checksum manifest, branch protection
-- [Performance](PERFORMANCE.md) — measured bottlenecks & fixes
-- [SAFe delivery](safe/SAFE.md) — the platform as a queryable Scaled-Agile backlog (`safe/safe_backlog.py`)
-- [TOGAF architecture](architecture/TOGAF.md) — principles catalog + ADM mapping + executable governance (`architecture/togaf.py`)
-- [SDLC](SDLC.md) — life-cycle phase mapping + the test suite (`tests/`) & CI (`.github/workflows/ci.yml`)
-- [Architecture](ARCHITECTURE.md) — mapped to the Modern Data Architecture Blueprint
-- [Architecture Map](ARCHITECTURE_MAP.md) — data-flow + tier + ER diagrams (Mermaid)
-- [Data Schema](SCHEMA.md) — data dictionary for every store
-- [Data warehouse (DuckDB)](WAREHOUSE.md) — one SQL surface to filter/depict across everything
-- [Data backbone (Cassandra/Kafka/Flink)](INFRA.md) · [CDC deployment](cdc/CDC_DEPLOYMENT.md)
+## Related repositories
+[`retail-outlet-monitoring`](https://github.com/herrrickshaw/retail-outlet-monitoring) and
+[`fuel-retail-outlets`](https://github.com/herrrickshaw/fuel-retail-outlets) hold the non-equity data that
+was split out of this project.
 
-**Screening & scoring**
-- [Screener.in coverage](SCREENS.md) · [Global DVM / Trendlyne](GLOBAL_DVM.md)
-- [Global fundamental screen](FUNDAMENTAL_SCREEN.md) · [Global DVM composite](DVM_COMPOSITE.md)
-- [ML screen discovery](ML_SCREEN_DISCOVERY.md)
-
-**Backtesting & research**
-- [Screen viability results](SCREEN_VIABILITY_RESULTS.md) · [Net of cost](NET_OF_COST.md)
-- [Point-in-time fundamentals scope](SCOPE_PIT_FUNDAMENTALS.md) · [PIT backtest results](PIT_BACKTEST_RESULTS.md)
-- [ML viability](ML_VIABILITY.md) · [Factor research](FACTOR_RESEARCH.md)
-- [Quality factor (QMJ)](QUALITY_FACTOR.md) — Asness-Frazzini-Pedersen QMJ per IIMA W.P. 2022-11-01, generalised to 19 markets
-- [Literature scout](SCOUT.md) — automated global research scout (OpenAlex/Crossref/arXiv) with research-gap detection
-- [PEAD factor](PEAD.md) — post-earnings-announcement drift; the scout→implement→covered loop closed
-- [Liquidity factor](LIQUIDITY.md) — Amihud illiquidity + liquidity premium; scout gap #2 closed
-- [Liquidity multi-year](LIQUIDITY.md#multi-year-test--the-premium-is-significant-liquidity_multiyearpy) — 10y Fama-MacBeth: liquidity premium +4.24%/qtr, t=2.16 (significant)
-- [Data sources](DATA_SOURCES.md) — per-market public factor libraries (AQR/Ken French/IIMA IFFM); what the quality paper names
-- [Benchmark](BENCHMARK.md) — fetches real Ken French factors and validates our quality tilt against them (−HML, +Mom)
-- [HFT selection](HFT_SELECTION.md) — the four HFT archetypes as a Tier-1 stock picker from daily high-low-close-volume
-- [Darvas × volume](DARVAS_VOLUME.md) — Darvas-box monitor for stealth volume acquisition + HFT footprint (coils & volume-confirmed breakouts)
-- [Watchlists](WATCHLISTS.md) — separate fundamentally-strong & being-accumulated lists (+ intersection)
-- [Accumulation screener](ACCUMULATION_SCREENER.md) — CMF/accumulation screen validated against 1-month & 6-month forward returns
-- [Corporate actions](CORPORATE_ACTIONS.md) — stock-split (yfinance) & rights-issue/dilution candidate screeners
-- [Frontier gaps](FRONTIER_GAPS.md) — the scout's 7 frontier themes all closed (seasonality/network/crowding/NLP/options/ESG/microstructure)
-- [Earnings × liquidity](EARNINGS_LIQUIDITY.md) — does liquidity/volume/price condition PEAD? (announcement volume surge + drift study)
-
-**Decision layer & consumption**
-- [Decision layer, global rigor & observability](DECISION_LAYER.md) — portfolio / risk / meta-screen / rotation / alerts / comps + global PIT + FX + data quality + serving
-
----
-
-## Install & requirements
-
-```bash
-pip install -r requirements.txt
-```
-Python 3.9+. Core: pandas, numpy, pyarrow, scikit-learn, yfinance, openpyxl. Market
-libs: nsepython, bseindia, kabupy, pykrx. Optional data backbone: cassandra-driver,
-confluent-kafka, apache-flink (servers via `brew install cassandra kafka apache-flink`).
-See [`requirements.txt`](requirements.txt) and [INFRA.md](INFRA.md).
-
-## Notes
-Not investment advice — research only. Backtests are pre-slippage unless stated;
-fundamentals are point-in-time (US/EDGAR) or current-snapshot (global/yfinance) as
-noted per module.
+## Licence
+No licence file yet — all rights reserved.

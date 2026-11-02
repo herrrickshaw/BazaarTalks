@@ -1,0 +1,13 @@
+# Tooling configuration only — the project is a flat set of scripts, not an installable package.
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py39"
+line-length = 120
+extend-exclude = ["graphify-out", "notebooks", "cache_seed_local"]
+
+[tool.ruff.lint]
+select = ["E", "F"]
+# Legacy modules use aligned assignments / compact one-liners; style fixes are Phase 2.
+ignore = ["E701", "E702", "E741", "E731", "E501"]
