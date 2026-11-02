@@ -41,9 +41,10 @@ import json
 import os
 import sys
 import warnings
-from datetime import date, timedelta
 
 import pandas as pd
+
+import ohlc_cache
 # Hard dependencies — no try/except around these imports. If either package is
 # missing, the module must fail at import time, not degrade at call time.
 from cassandra.cluster import Cluster
@@ -188,50 +189,36 @@ def get_ohlc(ticker: str) -> pd.DataFrame:
     return df.set_index("Date").sort_index()
 
 
+class _CassandraStore:
+    """OhlcStore adapter over this module's Cassandra functions."""
+
+    @staticmethod
+    def connect() -> None:
+        _connect()
+
+    @staticmethod
+    def coverage(ticker: str):
+        return coverage(ticker)
+
+    @staticmethod
+    def get_ohlc(ticker: str) -> pd.DataFrame:
+        return get_ohlc(ticker)
+
+    @staticmethod
+    def put_ohlc(ticker: str, df: pd.DataFrame) -> None:
+        put_ohlc(ticker, df)
+
+
 def cached_download(tickers, years: int = 5, refresh_days: int = 3) -> dict:
     """OHLC for tickers: served from Cassandra when fresh, else downloaded and
     written back. Returns {ticker: DataFrame}. Cassandra is mandatory — this
     raises MarketStoreUnavailable immediately (before touching yfinance at all)
     if the cluster can't be reached, instead of quietly reverting to
-    uncached/unmonitored direct downloads."""
+    uncached/unmonitored direct downloads. The cache policy itself lives in
+    ``ohlc_cache`` (store and downloader injected); this wires in the real ones."""
     from apiclient import yf_download   # governed, deduped, chunked, rate-limited
-    out, misses = {}, []
-    fresh_cut = date.today() - timedelta(days=refresh_days + 4)   # allow weekend/holiday gap
-    # require coverage back to ~years, minus a 30d buffer (a "5y" yfinance pull
-    # starts ~exactly 5y ago, so don't demand more history than it returns).
-    need_start = date.today() - timedelta(days=int(years * 365) - 30)
-
-    _connect()  # raises MarketStoreUnavailable up front if Cassandra is down
-    stale = []                    # cached with enough history but missing recent days
-    for t in tickers:
-        cov = coverage(t)
-        if cov and cov[0] <= need_start and cov[1] >= fresh_cut:
-            out[t] = get_ohlc(t)                       # fresh — serve from cache
-        elif cov and cov[0] <= need_start:
-            stale.append((t, cov[1]))                  # incremental: only fetch cov[1]..today
-        else:
-            misses.append(t)                           # not cached / too little history — full pull
-
-    # ── incremental delta fetch (only the new bars since last cached date) ──
-    if stale:
-        print(f"  [market_store] {len(stale)} stale -> fetching only new bars since last cache…",
-              file=sys.stderr, flush=True)
-        for t, last in stale:
-            new = yf_download([t], start=str(last + timedelta(days=1))).get(t)
-            if new is not None and not new.empty:
-                put_ohlc(t, new)                 # upsert (PK = ticker,d) — idempotent
-            out[t] = get_ohlc(t)
-
-    if misses:
-        print(f"  [market_store] {len(out)} from Cassandra, downloading {len(misses)} misses…",
-              file=sys.stderr, flush=True)
-        for t, df in yf_download(misses, period=f"{years}y").items():
-            out[t] = df
-            put_ohlc(t, df)
-    elif not stale:
-        print(f"  [market_store] all {len(out)} tickers served from Cassandra (no network)",
-              file=sys.stderr, flush=True)
-    return out
+    return ohlc_cache.cached_download(tickers, _CassandraStore(), yf_download,
+                                      years=years, refresh_days=refresh_days)
 
 
 if __name__ == "__main__":
