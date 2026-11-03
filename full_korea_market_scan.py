@@ -28,7 +28,6 @@
 
 import argparse
 import io
-import json
 import sys
 import time
 from datetime import datetime, timedelta
@@ -68,21 +67,12 @@ _CACHE_FILE = DOWNLOAD_DIR / ".symbols_cache.json"
 # ── Symbol universe ───────────────────────────────────────────────────────────
 
 def _load_cache():
-    try:
-        if _CACHE_FILE.exists():
-            data = json.loads(_CACHE_FILE.read_text())
-            if time.time() - data.get("ts", 0) < SYMBOL_CACHE_TTL:
-                return data.get("universe", [])
-    except Exception:
-        pass
-    return None
+    data = load_json_cache(_CACHE_FILE, SYMBOL_CACHE_TTL)
+    return data.get("universe", []) if data is not None else None
 
 
 def _save_cache(universe):
-    try:
-        _CACHE_FILE.write_text(json.dumps({"ts": time.time(), "universe": universe}))
-    except Exception:
-        pass
+    save_json_cache(_CACHE_FILE, {"universe": universe})
 
 
 _KIND_URL     = "https://kind.krx.co.kr/corpgeneral/corpList.do"
@@ -227,7 +217,7 @@ def compute_darvas_box(df: pd.DataFrame, confirm: int = DARVAS_CONFIRM) -> dict:
 
 
 # ── Fundamental helpers (shared; see stock_utils.py) ──────────────────────────
-from scan_common import (OHLC_SIGNALS, asia_fundamental_scan, last_two_closes, ma200_and_distance,
+from scan_common import (load_json_cache, save_json_cache, OHLC_SIGNALS, asia_fundamental_scan, last_two_closes, ma200_and_distance,
                          make_write_sheet, run_fundamental_pool, trend_signal)
 
 

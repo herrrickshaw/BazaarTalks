@@ -21,6 +21,7 @@
 #   pip install yfinance pandas openpyxl requests
 
 import argparse
+import logging
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -30,6 +31,8 @@ import pandas as pd
 
 import darvas_core
 import yfinance as yf
+
+logger = logging.getLogger(__name__)
 
 try:
     from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
@@ -146,8 +149,8 @@ def _eu_piotroski(res: dict, inc, bal, cf) -> None:
     """F-Score into ``res['f_score']``; a failure leaves it None."""
     try:
         res["f_score"] = piotroski_f_score(inc, bal, cf)
-    except Exception:
-        pass
+    except Exception as exc:  # incomplete statements: leave f_score None
+        logger.debug("piotroski failed: %s", exc)
 
 
 def _eu_coffee_can(res: dict, inc, bal, cf, info: dict, ticker):
@@ -195,8 +198,8 @@ def _eu_coffee_can(res: dict, inc, bal, cf, info: dict, ticker):
             "cc_roce_avg":    round(avg_roce, 2) if avg_roce else None,
             "cc_debt_equity": round(de, 2) if de else None,
         })
-    except Exception:
-        pass
+    except Exception as exc:  # incomplete statements: Coffee Can fields stay at their defaults
+        logger.debug("coffee-can failed: %s", exc)
     return mcap
 
 
@@ -218,8 +221,8 @@ def _eu_valuation(res: dict, info: dict, mcap) -> None:
             "dividend_yield":  round(dy, 2),
             "pegy_ratio":      round(pegy, 2) if pegy else None,
         })
-    except Exception:
-        pass
+    except Exception as exc:  # missing market cap / ratios: valuation fields stay unset
+        logger.debug("valuation failed: %s", exc)
 
 
 def fundamental_scan(symbol: str) -> dict:
@@ -234,8 +237,8 @@ def fundamental_scan(symbol: str) -> dict:
         info = {}
         try:
             info = ticker.info or {}
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("%s: ticker.info unavailable: %s", symbol, exc)
 
         if inc is None or inc.empty:
             res["error"] = "no_financial_statements"

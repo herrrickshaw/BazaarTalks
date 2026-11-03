@@ -25,10 +25,9 @@
 #   pip install kabupy yfinance pandas openpyxl requests
 
 import argparse
-import json
 import sys
 import time
-from datetime import datetime, timedelta
+from datetime import datetime
 from io import BytesIO
 from pathlib import Path
 
@@ -69,21 +68,12 @@ JPX_MASTER_URL = (
 # ── Symbol universe ───────────────────────────────────────────────────────────
 
 def _load_cache():
-    try:
-        if _CACHE_FILE.exists():
-            data = json.loads(_CACHE_FILE.read_text())
-            if time.time() - data.get("ts", 0) < SYMBOL_CACHE_TTL:
-                return data.get("tickers", [])
-    except Exception:
-        pass
-    return None
+    data = load_json_cache(_CACHE_FILE, SYMBOL_CACHE_TTL)
+    return data.get("tickers", []) if data is not None else None
 
 
 def _save_cache(tickers):
-    try:
-        _CACHE_FILE.write_text(json.dumps({"ts": time.time(), "tickers": tickers}))
-    except Exception:
-        pass
+    save_json_cache(_CACHE_FILE, {"tickers": tickers})
 
 
 def fetch_tse_universe_kabupy() -> list[dict]:
@@ -260,7 +250,7 @@ def compute_darvas_box(df: pd.DataFrame, confirm: int = DARVAS_CONFIRM) -> dict:
 
 
 # ── Fundamental helpers (shared; see stock_utils.py) ──────────────────────────
-from scan_common import (OHLC_SIGNALS, asia_fundamental_scan, last_two_closes, ma200_and_distance,
+from scan_common import (load_json_cache, save_json_cache, OHLC_SIGNALS, asia_fundamental_scan, last_two_closes, ma200_and_distance,
                          make_write_sheet, run_fundamental_pool, trend_signal)
 
 

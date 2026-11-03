@@ -5,12 +5,17 @@ identically across them lives here.
 """
 from __future__ import annotations
 
+import json
+import logging
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Callable, Iterable, Optional
 
 import pandas as pd
 
 from stock_utils import first_df as _first_df, row as _row, series as _series
+
+logger = logging.getLogger(__name__)
 
 OHLC_SIGNALS = ("BREAKOUT_BUY", "BREAKDOWN_SELL")
 GC_PASSING = ("GOLDEN_CROSS", "ABOVE_200DMA")
@@ -304,6 +309,28 @@ def asia_fundamental_scan(result: dict, yf_mod, yf_ticker: str, strong_threshold
 
     try:
         result.update(_asia_coffee_can(inc, bal, cf, ticker, mcap_key, mcap_div))
-    except Exception:
-        pass
+    except Exception as exc:  # a malformed statement leaves the Coffee Can fields at their FAIL defaults
+        logger.debug("coffee-can failed for %s: %s", yf_ticker, exc)
     return result
+
+
+# ── 24 h JSON symbol-list cache ────────────────────────────────────────────────
+
+def load_json_cache(path, ttl_sec: float) -> Optional[dict]:
+    """The cached JSON object if ``path`` holds one younger than ``ttl_sec`` (its ``ts`` field), else None."""
+    try:
+        if path.exists():
+            data = json.loads(path.read_text())
+            if time.time() - data.get("ts", 0) < ttl_sec:
+                return data
+    except (OSError, ValueError, AttributeError, TypeError) as exc:
+        logger.debug("symbol cache %s unreadable: %s", path, exc)
+    return None
+
+
+def save_json_cache(path, payload: dict) -> None:
+    """Write ``payload`` plus a ``ts`` timestamp to ``path``; an unwritable location is logged, not raised."""
+    try:
+        path.write_text(json.dumps({"ts": time.time(), **payload}))
+    except (OSError, TypeError, ValueError) as exc:
+        logger.debug("symbol cache %s not written: %s", path, exc)

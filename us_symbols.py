@@ -5,10 +5,11 @@ Split out of full_us_market_scan.py (which re-exports every public name here).
 from __future__ import annotations
 
 import json
-import time
 from pathlib import Path
 
 import requests
+
+from scan_common import load_json_cache, save_json_cache
 
 try:
     from ncdssdk import NCDSClient as _NCDSClient
@@ -29,21 +30,12 @@ _SYMBOL_CACHE = DOWNLOAD_DIR / ".symbols_cache.json"
 
 
 def _load_symbol_cache():
-    try:
-        if _SYMBOL_CACHE.exists():
-            data = json.loads(_SYMBOL_CACHE.read_text())
-            if time.time() - data.get("ts", 0) < SYMBOL_CACHE_TTL:
-                return data.get("nasdaq", []), data.get("nyse", [])
-    except Exception:
-        pass
-    return None, None
+    data = load_json_cache(_SYMBOL_CACHE, SYMBOL_CACHE_TTL)
+    return (data.get("nasdaq", []), data.get("nyse", [])) if data is not None else (None, None)
 
 
 def _save_symbol_cache(nasdaq_syms, nyse_syms):
-    try:
-        _SYMBOL_CACHE.write_text(json.dumps({"ts": time.time(), "nasdaq": nasdaq_syms, "nyse": nyse_syms}))
-    except Exception:
-        pass
+    save_json_cache(_SYMBOL_CACHE, {"nasdaq": nasdaq_syms, "nyse": nyse_syms})
 
 
 # ── Symbol fetch ───────────────────────────────────────────────────────────────

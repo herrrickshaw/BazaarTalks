@@ -122,27 +122,16 @@ SYMBOL_CACHE_TTL  = 86400 # seconds — refresh symbol lists once per day
 
 
 # ── Symbol list caching ────────────────────────────────────────────────────────
-import json as _json
-
 _SYMBOL_CACHE = DOWNLOAD_DIR / ".symbols_cache.json"
 
 
 def _load_symbol_cache():
-    try:
-        if _SYMBOL_CACHE.exists():
-            data = _json.loads(_SYMBOL_CACHE.read_text())
-            if time.time() - data.get("ts", 0) < SYMBOL_CACHE_TTL:
-                return data.get("nse", []), data.get("bse_only", [])
-    except Exception:
-        pass
-    return None, None
+    data = load_json_cache(_SYMBOL_CACHE, SYMBOL_CACHE_TTL)
+    return (data.get("nse", []), data.get("bse_only", [])) if data is not None else (None, None)
 
 
 def _save_symbol_cache(nse_syms, bse_syms):
-    try:
-        _SYMBOL_CACHE.write_text(_json.dumps({"ts": time.time(), "nse": nse_syms, "bse_only": bse_syms}))
-    except Exception:
-        pass
+    save_json_cache(_SYMBOL_CACHE, {"nse": nse_syms, "bse_only": bse_syms})
 
 
 # ── Symbol fetch ───────────────────────────────────────────────────────────────
@@ -337,7 +326,7 @@ def compute_darvas_box(df: pd.DataFrame, confirm: int = DARVAS_CONFIRM) -> dict:
 # ── Golden Crossover / fundamentals ───────────────────────────────────────────
 # Implemented in scan_common.py / indian_fundamentals.py; re-exported so existing importers keep working.
 from indian_fundamentals import fundamental_scan  # noqa: E402,F401
-from scan_common import (OHLC_SIGNALS, make_write_sheet, compute_golden_crossover, gc_label, last_two_closes,  # noqa: E402,F401
+from scan_common import (load_json_cache, save_json_cache, OHLC_SIGNALS, make_write_sheet, compute_golden_crossover, gc_label, last_two_closes,  # noqa: E402,F401
                          print_ohlc_counts, print_scan_summary, run_fundamental_pool, tally_screens,
                          triple_hits)
 
