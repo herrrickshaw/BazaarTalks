@@ -334,193 +334,12 @@ def compute_darvas_box(df: pd.DataFrame, confirm: int = DARVAS_CONFIRM) -> dict:
 
 # ── Golden Crossover ──────────────────────────────────────────────────────────
 
-def compute_golden_crossover(df: pd.DataFrame) -> dict:
-    """
-    Detect if the 50 DMA just crossed above the 200 DMA (today's bar).
-    Uses only the already-downloaded bulk OHLC — zero extra API calls.
-    Requires 201+ bars (≈ 1 year of trading days).
-    """
-    if df is None or df.empty:
-        return {"gc_signal": False, "dma50_above_200": False, "dma50": None, "dma200": None}
-    closes = pd.to_numeric(df["Close"], errors="coerce").dropna()
-    if len(closes) < 201:
-        return {"gc_signal": False, "dma50_above_200": False, "dma50": None, "dma200": None}
-    dma50  = closes.rolling(50).mean()
-    dma200 = closes.rolling(200).mean()
-    d50_t, d200_t = float(dma50.iloc[-1]), float(dma200.iloc[-1])
-    d50_p, d200_p = float(dma50.iloc[-2]), float(dma200.iloc[-2])
-    gc_today = (d50_p < d200_p) and (d50_t > d200_t)
-    gap_pct  = round((d50_t - d200_t) / d200_t * 100, 2) if d200_t else 0
-    return {
-        "gc_signal":      gc_today,              # strict: crossed exactly today
-        "dma50_above_200": d50_t > d200_t,       # broader: currently above
-        "dma50":          round(d50_t, 2),
-        "dma200":         round(d200_t, 2),
-        "dma_gap_%":      gap_pct,
-    }
-
-
-# ── Piotroski F-Score ─────────────────────────────────────────────────────────
-
-# Shared helpers (see stock_utils.py) — aliased to keep existing call sites.
-from scan_common import (OHLC_SIGNALS, gc_label, last_two_closes, piotroski_f_score, print_ohlc_counts,
-                         print_scan_summary, run_fundamental_pool, tally_screens, triple_hits)
-from stock_utils import first_df as _first_df, row as _row
-
-
-def _fetch_statements(symbol: str, yf_suffix: str) -> tuple:
-    """(inc, bal, cf, inc_q, mcap, info) for one symbol via a single yfinance Ticker."""
-    ticker = yf.Ticker(f"{symbol}{yf_suffix}")
-    inc    = _first_df(ticker, "income_stmt", "financials")
-    bal    = _first_df(ticker, "balance_sheet")
-    cf     = _first_df(ticker, "cash_flow", "cashflow")
-    inc_q  = _first_df(ticker, "quarterly_income_stmt", "quarterly_financials")
-    try:
-        mcap = ticker.fast_info.market_cap or 0
-    except Exception:
-        mcap = 0
-    try:
-        info = ticker.info or {}
-    except Exception:
-        info = {}
-    return inc, bal, cf, inc_q, mcap, info
-
-
-def _failed_scan(symbol: str, error: str) -> dict:
-    """Result row for a ticker whose statements could not be fetched."""
-    return {"symbol": symbol, "error": error,
-            "f_score": None, "f_strong": False,
-            "qualifies_cc": False, "cc_score": "N/A",
-            "qualifies_mf": False, "qualifies_bc": False,
-            "ROIC_%": None, "Earnings_Yield_%": None,
-            "Sales_Growth_YoY_%": None, "Profit_Growth_YoY_%": None}
-
-
-def _annual_series(df, *rows) -> list:
-    """All non-NaN values of the first matching row across periods (newest first)."""
-    for name in rows:
-        if df is not None and name in df.index:
-            return [float(v) for v in df.loc[name].dropna() if pd.notna(v)]
-    return []
-
-
-def _coffee_can(inc, bal, info: dict, mcap: float) -> tuple:
-    """Coffee Can bits: (qualifies, score text, rev CAGR %, avg ROCE %)."""
-    revs = _annual_series(inc, "Total Revenue")
-    cagr = ((revs[0]/revs[-1])**(1/(len(revs)-1))-1)*100 if len(revs)>=2 and revs[-1]>0 else None
-
-    ebit_s = _annual_series(inc, "EBIT", "Operating Income", "Ebit")
-    ta_s   = _annual_series(bal, "Total Assets")
-    cl_s   = _annual_series(bal, "Current Liabilities", "Total Current Liabilities")
-    roce_l = [ebit_s[i]/(ta_s[i]-cl_s[i])*100
-              for i in range(min(len(ebit_s),len(ta_s),len(cl_s))) if (ta_s[i]-cl_s[i])>0]
-    avg_roce = sum(roce_l)/len(roce_l) if roce_l else None
-
-    de_raw = info.get("debtToEquity")
-    if de_raw is not None:
-        de = de_raw/100 if de_raw > 10 else de_raw
-    else:
-        ltd_s = _annual_series(bal, "Long Term Debt")
-        eq_s  = _annual_series(bal, "Stockholders Equity", "Total Stockholder Equity",
-                               "Total Equity Gross Minority Interest")
-        de = (ltd_s[0]/eq_s[0]) if (ltd_s and eq_s and eq_s[0]!=0) else None
-
-    mcap_cr = mcap / 1e7
-    ni_s    = _annual_series(inc, "Net Income")
-    cc_bits = [
-        1 if (cagr    and cagr    > 10)  else 0,
-        1 if (avg_roce and avg_roce > 15) else 0,
-        1 if (de is not None and de < 1)  else 0,
-        1 if mcap_cr >= 500               else 0,
-        1 if (ni_s and all(n > 0 for n in ni_s)) else 0,
-    ]
-    return sum(cc_bits) == 5, f"{sum(cc_bits)}/5", cagr, avg_roce
-
-
-def _magic_formula(inc, bal, info: dict, mcap: float) -> tuple:
-    """Magic Formula: (qualifies, ROIC %, earnings yield %) reusing the annual statements."""
-    a0  = _row(bal, "Total Assets", col=0)
-    cl0 = _row(bal, "Current Liabilities", "Total Current Liabilities", col=0)
-    ebit      = _row(inc, "EBIT", "Operating Income", "Ebit")
-    cap_emp   = (a0 - (cl0 or 0)) if a0 else None
-    total_dbt = info.get("totalDebt", 0) or 0
-    cash_val  = info.get("totalCash", 0) or 0
-    ev        = (mcap + total_dbt - cash_val) if mcap else None
-    roic      = (ebit/cap_emp*100) if (ebit and cap_emp and cap_emp>0) else None
-    ey        = (ebit/ev*100)       if (ebit and ev      and ev>0)     else None
-    bv        = info.get("bookValue")
-    mcap_cr   = mcap / 1e7
-    qualifies = bool(roic and roic>25 and ey and ey>15 and bv and bv>0 and mcap_cr>15)
-    return qualifies, roic, ey
-
-
-def _annual_screens(out: dict, inc, bal, cf, info: dict, mcap: float) -> None:
-    """Fill Piotroski, Coffee Can and Magic Formula fields (all from the annual statements)."""
-    if inc is None:
-        out.update({"f_score": None, "f_strong": False,
-                    "qualifies_cc": False, "cc_score": "N/A",
-                    "qualifies_mf": False, "ROIC_%": None, "Earnings_Yield_%": None,
-                    "Revenue_CAGR_%": None, "ROCE_avg_%": None})
-        return
-    f_score = piotroski_f_score(inc, bal, cf)
-    out["f_score"]  = f_score
-    out["f_strong"] = f_score >= 7
-
-    qualifies_cc, cc_score, cagr, avg_roce = _coffee_can(inc, bal, info, mcap)
-    out["qualifies_cc"] = qualifies_cc
-    out["cc_score"]     = cc_score
-    out["Revenue_CAGR_%"] = round(cagr,     2) if cagr     is not None else None
-    out["ROCE_avg_%"]     = round(avg_roce,  2) if avg_roce is not None else None
-
-    qualifies_mf, roic, ey = _magic_formula(inc, bal, info, mcap)
-    out["qualifies_mf"]      = qualifies_mf
-    out["ROIC_%"]            = round(roic, 2) if roic is not None else None
-    out["Earnings_Yield_%"]  = round(ey,   2) if ey   is not None else None
-
-
-def _bull_cartel(out: dict, inc_q) -> None:
-    """Bull Cartel: YoY quarterly sales >15% and profit >20% with net profit > Rs 1 Cr."""
-    if inc_q is not None and len(inc_q.columns) >= 5:
-        rev_q0 = _row(inc_q, "Total Revenue", col=0)
-        rev_q4 = _row(inc_q, "Total Revenue", col=4)
-        ni_q0  = _row(inc_q, "Net Income",    col=0)
-        ni_q4  = _row(inc_q, "Net Income",    col=4)
-        sales_g  = ((rev_q0-rev_q4)/abs(rev_q4)*100) if (rev_q0 and rev_q4 and rev_q4!=0) else None
-        profit_g = ((ni_q0-ni_q4)/abs(ni_q4)*100)   if (ni_q0  and ni_q4  and ni_q4!=0)  else None
-        ni_cr    = ni_q0 / 1e7 if ni_q0 else None
-        out["qualifies_bc"]        = bool(sales_g and sales_g>15
-                                          and profit_g and profit_g>20
-                                          and ni_cr and ni_cr>1)
-        out["Sales_Growth_YoY_%"]  = round(sales_g,  2) if sales_g  is not None else None
-        out["Profit_Growth_YoY_%"] = round(profit_g, 2) if profit_g is not None else None
-        out["Net_Profit_Cr"]       = round(ni_cr,    2) if ni_cr    is not None else None
-    else:
-        out.update({"qualifies_bc": False, "Sales_Growth_YoY_%": None,
-                    "Profit_Growth_YoY_%": None, "Net_Profit_Cr": None})
-
-
-def fundamental_scan(symbol: str, yf_suffix: str = ".NS") -> dict:
-    """
-    Run ALL 5 fundamental screeners for one symbol in a single Ticker() call.
-
-    Screeners computed here (Golden Crossover uses OHLC, computed separately):
-      1. Piotroski F-Score  — 9-point accounting quality score
-      2. Coffee Can         — CAGR, ROCE, D/E, MCap, no loss-year
-      3. Magic Formula      — ROIC > 25%, Earnings Yield > 15%  (reuses same annual data)
-      4. Bull Cartel        — YoY quarterly sales growth > 15%, profit > 20%
-
-    One yfinance Ticker() → one set of HTTP calls → four screener results.
-    This is the core efficiency mechanism for running all screeners on the full universe.
-    """
-    try:
-        inc, bal, cf, inc_q, mcap, info = _fetch_statements(symbol, yf_suffix)
-    except Exception as e:
-        return _failed_scan(symbol, str(e))
-
-    out = {"symbol": symbol, "error": ""}
-    _annual_screens(out, inc, bal, cf, info, mcap)
-    _bull_cartel(out, inc_q)
-    return out
+# ── Golden Crossover / fundamentals ───────────────────────────────────────────
+# Implemented in scan_common.py / indian_fundamentals.py; re-exported so existing importers keep working.
+from indian_fundamentals import fundamental_scan  # noqa: E402,F401
+from scan_common import (OHLC_SIGNALS, make_write_sheet, compute_golden_crossover, gc_label, last_two_closes,  # noqa: E402,F401
+                         print_ohlc_counts, print_scan_summary, run_fundamental_pool, tally_screens,
+                         triple_hits)
 
 
 # ── Excel export ───────────────────────────────────────────────────────────────
@@ -530,44 +349,24 @@ def save_excel(all_rows, darvas_rows, fund_rows, triple_rows,
     date_str = datetime.today().strftime("%Y%m%d_%H%M")
     path     = DOWNLOAD_DIR / f"{tag}_full_scan_{date_str}.xlsx"
 
-    DISCLAIMER_ROW = [(
-        "⚠️ DISCLAIMER: For educational/research use only. NOT financial advice. "
-        "Screener results are mechanical filters — not buy/sell signals. "
-        "Consult a SEBI-registered advisor. Past screens ≠ future returns."
-    )]
-
+    # (sheet, rows, sort column): all stocks, Darvas signals, every fundamental result, per-screener
+    # filtered views, triple hits (Darvas + Piotroski + CC) and stocks passing 3+ of the 6 screeners.
+    sheets = [
+        ("All_Stocks",        all_rows,                                                       "Change%"),
+        ("Darvas_Signals",    darvas_rows,                                                    "Upside_to_Top%"),
+        ("All_Fundamentals",  fund_rows,                                                      "Piotroski_Score"),
+        ("Piotroski_Strong",  [r for r in fund_rows if r.get("Piotroski_Strong") == "YES"],   "Piotroski_Score"),
+        ("Coffee_Can",        [r for r in fund_rows if r.get("CoffeeCan") == "PASS"],         "Revenue_CAGR_%"),
+        ("Magic_Formula",     [r for r in fund_rows if r.get("MagicFormula") == "PASS"],      "ROIC_%"),
+        ("Bull_Cartel",       [r for r in fund_rows if r.get("BullCartel") == "PASS"],        "Profit_Growth_YoY_%"),
+        ("Golden_Crossover",  [r for r in all_rows if r.get("GC_Signal") == "GOLDEN_CROSS"],  "DMA_Gap%"),
+        ("Triple_Hits",       triple_rows,                                                    "Piotroski_Score"),
+        ("Multi_Screen_Hits", six_screen_rows or [],                                          "Screens_Passed"),
+    ]
     with pd.ExcelWriter(path, engine="openpyxl") as writer:
-        def write_sheet(rows, name, sort_col=None, sort_asc=False):
-            if not rows:
-                pd.DataFrame({"Note": ["No qualifying stocks today"]}).to_excel(
-                    writer, sheet_name=name, index=False)
-                return
-            df = pd.DataFrame(rows)
-            if sort_col and sort_col in df.columns:
-                df = df.sort_values(sort_col, ascending=sort_asc)
-            df.to_excel(writer, sheet_name=name, index=False)
-
-        # All stocks price + Darvas + GC columns
-        write_sheet(all_rows,          "All_Stocks",       sort_col="Change%", sort_asc=False)
-        # Darvas breakout / breakdown signals
-        write_sheet(darvas_rows,       "Darvas_Signals",   sort_col="Upside_to_Top%", sort_asc=False)
-        # Full fundamental results for every stock (all 4 screeners)
-        write_sheet(fund_rows,         "All_Fundamentals", sort_col="Piotroski_Score", sort_asc=False)
-        # Filtered views per screener
-        write_sheet([r for r in fund_rows if r.get("Piotroski_Strong") == "YES"],
-                    "Piotroski_Strong", sort_col="Piotroski_Score", sort_asc=False)
-        write_sheet([r for r in fund_rows if r.get("CoffeeCan") == "PASS"],
-                    "Coffee_Can",       sort_col="Revenue_CAGR_%", sort_asc=False)
-        write_sheet([r for r in fund_rows if r.get("MagicFormula") == "PASS"],
-                    "Magic_Formula",    sort_col="ROIC_%", sort_asc=False)
-        write_sheet([r for r in fund_rows if r.get("BullCartel") == "PASS"],
-                    "Bull_Cartel",      sort_col="Profit_Growth_YoY_%", sort_asc=False)
-        write_sheet([r for r in all_rows if r.get("GC_Signal") == "GOLDEN_CROSS"],
-                    "Golden_Crossover", sort_col="DMA_Gap%", sort_asc=False)
-        # Triple hits (Darvas + Piotroski + CC — classic combo)
-        write_sheet(triple_rows,       "Triple_Hits",      sort_col="Piotroski_Score", sort_asc=False)
-        # Six-screen hits: stocks passing 3 or more of the 6 screeners
-        write_sheet(six_screen_rows or [], "Multi_Screen_Hits", sort_col="Screens_Passed", sort_asc=False)
+        write_sheet = make_write_sheet(writer, empty_note=True)
+        for name, rows, sort_col in sheets:
+            write_sheet(rows, name, sort_col=sort_col)
 
     print(f"\n  📊  Excel saved → {path}")
     return path

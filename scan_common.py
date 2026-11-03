@@ -47,6 +47,34 @@ def piotroski_f_score(inc, bal, cf) -> int:
     )
 
 
+# ── Golden Crossover ───────────────────────────────────────────────────────────
+
+def compute_golden_crossover(df: pd.DataFrame) -> dict:
+    """
+    Detect if the 50 DMA just crossed above the 200 DMA (today's bar).
+    Uses only the already-downloaded bulk OHLC — zero extra API calls.
+    Requires 201+ bars (≈ 1 year of trading days).
+    """
+    if df is None or df.empty:
+        return {"gc_signal": False, "dma50_above_200": False, "dma50": None, "dma200": None}
+    closes = pd.to_numeric(df["Close"], errors="coerce").dropna()
+    if len(closes) < 201:
+        return {"gc_signal": False, "dma50_above_200": False, "dma50": None, "dma200": None}
+    dma50  = closes.rolling(50).mean()
+    dma200 = closes.rolling(200).mean()
+    d50_t, d200_t = float(dma50.iloc[-1]), float(dma200.iloc[-1])
+    d50_p, d200_p = float(dma50.iloc[-2]), float(dma200.iloc[-2])
+    gc_today = (d50_p < d200_p) and (d50_t > d200_t)
+    gap_pct  = round((d50_t - d200_t) / d200_t * 100, 2) if d200_t else 0
+    return {
+        "gc_signal":      gc_today,              # strict: crossed exactly today
+        "dma50_above_200": d50_t > d200_t,       # broader: currently above
+        "dma50":          round(d50_t, 2),
+        "dma200":         round(d200_t, 2),
+        "dma_gap_%":      gap_pct,
+    }
+
+
 # ── Price-row helpers ──────────────────────────────────────────────────────────
 
 def gc_label(gc: dict) -> str:

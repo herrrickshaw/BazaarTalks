@@ -191,30 +191,9 @@ def compute_darvas_box(df: pd.DataFrame, confirm: int = DARVAS_CONFIRM) -> dict:
 
 # ── Golden Crossover ──────────────────────────────────────────────────────────
 
-def compute_golden_crossover(df: pd.DataFrame) -> dict:
-    """50 DMA crossed above 200 DMA today. Uses bulk OHLC — zero extra API calls."""
-    if df is None or df.empty:
-        return {"gc_signal": False, "dma50_above_200": False, "dma50": None, "dma200": None}
-    closes = pd.to_numeric(df["Close"], errors="coerce").dropna()
-    if len(closes) < 201:
-        return {"gc_signal": False, "dma50_above_200": False, "dma50": None, "dma200": None}
-    dma50  = closes.rolling(50).mean()
-    dma200 = closes.rolling(200).mean()
-    d50_t, d200_t = float(dma50.iloc[-1]), float(dma200.iloc[-1])
-    d50_p, d200_p = float(dma50.iloc[-2]), float(dma200.iloc[-2])
-    gap_pct = round((d50_t - d200_t) / d200_t * 100, 2) if d200_t else 0
-    return {
-        "gc_signal":       (d50_p < d200_p) and (d50_t > d200_t),
-        "dma50_above_200": d50_t > d200_t,
-        "dma50":           round(d50_t, 2),
-        "dma200":          round(d200_t, 2),
-        "dma_gap_%":       gap_pct,
-    }
-
-
 # ── Fundamental scan ───────────────────────────────────────────────────────────
 # Implemented in us_fundamentals.py; re-exported so existing importers keep working.
-from scan_common import (OHLC_SIGNALS, gc_label, print_ohlc_counts, print_scan_summary,  # noqa: E402
+from scan_common import (OHLC_SIGNALS, compute_golden_crossover, make_write_sheet, gc_label, print_ohlc_counts, print_scan_summary,  # noqa: E402
                          run_fundamental_pool, tally_screens, triple_hits)
 from us_fundamentals import fundamental_scan  # noqa: E402,F401
 
@@ -227,14 +206,7 @@ def save_excel(all_rows, darvas_rows, fund_rows, triple_rows,
     path     = DOWNLOAD_DIR / f"{tag}_full_scan_{date_str}.xlsx"
 
     with pd.ExcelWriter(path, engine="openpyxl") as writer:
-        def write_sheet(rows, name, sort_col=None):
-            if not rows:
-                pd.DataFrame().to_excel(writer, sheet_name=name, index=False)
-                return
-            df = pd.DataFrame(rows)
-            if sort_col and sort_col in df.columns:
-                df = df.sort_values(sort_col, ascending=False)
-            df.to_excel(writer, sheet_name=name, index=False)
+        write_sheet = make_write_sheet(writer)
 
         write_sheet(all_rows,    "All_Stocks",       sort_col="Change%")
         write_sheet(darvas_rows, "Darvas_Signals",   sort_col="Upside_to_Top%")
