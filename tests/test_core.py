@@ -960,7 +960,8 @@ def test_marketdata_ic_and_monotonicity():
 
 def test_marketdata_delegation_preserves_module_helpers():
     # the refactored modules delegate to marketdata but keep their public names/behaviour
-    import liquidity_factor as lf, pead_factor as pf, watchlists as wl, marketdata as md
+    import watchlists as wl
+    import marketdata as md
     assert wl.clean_key("XYZ.BO") == md.clean_key("XYZ.BO") == "XYZ"
 
 

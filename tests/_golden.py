@@ -23,4 +23,8 @@ def check(name: str, value) -> None:
         PATH.write_text(json.dumps(data, indent=1, sort_keys=True))
         return
     assert name in data, f"no golden for {name}; run with UPDATE_GOLDEN=1 on the pre-refactor code"
-    assert value == data[name]
+    if value != data[name]:
+        import difflib
+        a = json.dumps(data[name], indent=1, sort_keys=True).splitlines()
+        b = json.dumps(value, indent=1, sort_keys=True).splitlines()
+        raise AssertionError("golden mismatch:\n" + "\n".join(list(difflib.unified_diff(a, b, "golden", "now", lineterm=""))[:40]))
