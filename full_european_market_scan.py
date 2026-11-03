@@ -135,67 +135,24 @@ def compute_darvas_box(df: pd.DataFrame, confirm: int = DARVAS_CONFIRM) -> dict:
     }
 
 # Shared fundamental helpers (see stock_utils.py)
-from stock_utils import first_df as _first_df, row as _row, series as _series
+from scan_common import piotroski_f_score
+from stock_utils import first_df as _first_df, series as _series
 
 # ── Fundamental Scan ──────────────────────────────────────────────────────────
-def fundamental_scan(symbol: str) -> dict:
-    """Fetch financials and execute F-Score, Coffee Can, and PEGY calculations in one Ticker call."""
-    res = {"symbol": symbol, "f_score": None, "cc_qualifies": "FAIL", "error": None}
+_UNSET = object()   # market cap not reached (Coffee Can failed before reading it)
+
+
+def _eu_piotroski(res: dict, inc, bal, cf) -> None:
+    """F-Score into ``res['f_score']``; a failure leaves it None."""
     try:
-        ticker = yf.Ticker(symbol)
-        inc = _first_df(ticker, "income_stmt", "financials")
-        bal = _first_df(ticker, "balance_sheet")
-        cf  = _first_df(ticker, "cash_flow", "cashflow")
-        
-        info = {}
-        try:
-            info = ticker.info or {}
-        except Exception:
-            pass
-
-        if inc is None or inc.empty:
-            res["error"] = "no_financial_statements"
-            return res
-    except Exception as e:
-        res["error"] = str(e)[:80]
-        return res
-
-    # ── 1. Piotroski F-Score ──────────────────────────────────────────────────
-    try:
-        ni0 = _row(inc, "Net Income", col=0);  a0 = _row(bal, "Total Assets", col=0)
-        ni1 = _row(inc, "Net Income", col=1);  a1 = _row(bal, "Total Assets", col=1)
-        roa0 = (ni0 / a0) if (ni0 and a0) else None
-        roa1 = (ni1 / a1) if (ni1 and a1) else None
-        ocf0 = _row(cf, "Operating Cash Flow", "Total Cash From Operating Activities", col=0)
-
-        f1 = 1 if (roa0 and roa0 > 0) else 0
-        f2 = 1 if (ocf0 and ocf0 > 0) else 0
-        f3 = 1 if (roa0 and roa1 and roa0 > roa1) else 0
-        f4 = 1 if (ocf0 and a0 and roa0 and (ocf0 / a0) > roa0) else 0
-
-        ltd0 = _row(bal, "Long Term Debt", col=0) or 0
-        ltd1 = _row(bal, "Long Term Debt", col=1) or 0
-        f5 = 1 if (a0 and a1 and (ltd0/a0) < (ltd1/a1)) else 0
-
-        ca0 = _row(bal, "Current Assets", "Total Current Assets", col=0)
-        cl0 = _row(bal, "Current Liabilities", "Total Current Liabilities", col=0)
-        ca1 = _row(bal, "Current Assets", "Total Current Assets", col=1)
-        cl1 = _row(bal, "Current Liabilities", "Total Current Liabilities", col=1)
-        f6 = 1 if (ca0 and cl0 and ca1 and cl1 and (ca0/cl0) > (ca1/cl1)) else 0
-
-        sh0 = _row(bal, "Share Issued", col=0);  sh1 = _row(bal, "Share Issued", col=1)
-        f7 = (1 if sh0 <= sh1 else 0) if (sh0 and sh1) else 1
-
-        rev0 = _row(inc, "Total Revenue", col=0);  gp0 = _row(inc, "Gross Profit", col=0)
-        rev1 = _row(inc, "Total Revenue", col=1);  gp1 = _row(inc, "Gross Profit", col=1)
-        f8 = 1 if (gp0 and rev0 and gp1 and rev1 and (gp0/rev0) > (gp1/rev1)) else 0
-        f9 = 1 if (rev0 and a0 and rev1 and a1 and (rev0/a0) > (rev1/a1)) else 0
-
-        res["f_score"] = f1 + f2 + f3 + f4 + f5 + f6 + f7 + f8 + f9
+        res["f_score"] = piotroski_f_score(inc, bal, cf)
     except Exception:
         pass
 
-    # ── 2. Coffee Can Screen ──────────────────────────────────────────────────
+
+def _eu_coffee_can(res: dict, inc, bal, cf, info: dict, ticker):
+    """Coffee Can fields into ``res``; returns the market cap read on the way (``_UNSET`` if never read)."""
+    mcap = _UNSET
     try:
         c = {}
         revs = _series(inc, "Total Revenue")
@@ -240,9 +197,14 @@ def fundamental_scan(symbol: str) -> dict:
         })
     except Exception:
         pass
+    return mcap
 
-    # ── 3. Valuation & PEGY ───────────────────────────────────────────────────
+
+def _eu_valuation(res: dict, info: dict, mcap) -> None:
+    """P/E, P/B, dividend yield and PEGY into ``res`` (skipped when Coffee Can never read the market cap)."""
     try:
+        if mcap is _UNSET:
+            raise NameError("mcap")
         pe  = info.get("trailingPE") or info.get("forwardPE") or info.get("regularMarketPrice", 0) / (info.get("trailingEps") or 1)
         peg = info.get("pegRatio")
         dy_raw = info.get("dividendYield")
@@ -259,7 +221,34 @@ def fundamental_scan(symbol: str) -> dict:
     except Exception:
         pass
 
+
+def fundamental_scan(symbol: str) -> dict:
+    """Fetch financials and execute F-Score, Coffee Can, and PEGY calculations in one Ticker call."""
+    res = {"symbol": symbol, "f_score": None, "cc_qualifies": "FAIL", "error": None}
+    try:
+        ticker = yf.Ticker(symbol)
+        inc = _first_df(ticker, "income_stmt", "financials")
+        bal = _first_df(ticker, "balance_sheet")
+        cf  = _first_df(ticker, "cash_flow", "cashflow")
+
+        info = {}
+        try:
+            info = ticker.info or {}
+        except Exception:
+            pass
+
+        if inc is None or inc.empty:
+            res["error"] = "no_financial_statements"
+            return res
+    except Exception as e:
+        res["error"] = str(e)[:80]
+        return res
+
+    _eu_piotroski(res, inc, bal, cf)
+    mcap = _eu_coffee_can(res, inc, bal, cf, info, ticker)
+    _eu_valuation(res, info, mcap)
     return res
+
 
 # ── Sheet Styling ─────────────────────────────────────────────────────────────
 def style_excel_sheet(ws):
