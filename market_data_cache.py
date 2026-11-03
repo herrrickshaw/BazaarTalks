@@ -67,6 +67,8 @@ import pandas as pd
 
 warnings.filterwarnings("ignore")
 
+from market_data_download import download_bulk, download_single
+
 try:
     import yfinance as yf
     _YF_OK = True
@@ -509,67 +511,13 @@ class MarketCache:
         """Download OHLC for a single ticker with retry."""
         if not _YF_OK:
             return pd.DataFrame()
-        for attempt in range(3):
-            try:
-                df = yf.download(ticker, start=start, auto_adjust=True, progress=False)
-                if isinstance(df.columns, pd.MultiIndex):
-                    df = df.xs(ticker, axis=1, level=1)
-                if not df.empty:
-                    return df[["Open","High","Low","Close","Volume"]].dropna(how="all")
-            except Exception as e:
-                if "Rate" in str(e) or "429" in str(e):
-                    time.sleep(15 * (attempt + 1))
-                else:
-                    break
-        return pd.DataFrame()
+        return download_single(yf, ticker, start, sleep=time.sleep)
 
     def _bulk_yf_download(self, tickers: list, start: date) -> dict:
         """Batch-download OHLC for multiple tickers."""
         if not _YF_OK:
             return {}
-        result = {}
-        batches = [tickers[i:i+BATCH_SIZE] for i in range(0, len(tickers), BATCH_SIZE)]
-        n_total = len(tickers)
-        n_done  = 0
-
-        for idx, batch in enumerate(batches, 1):
-            print(f"    Downloading batch {idx}/{len(batches)} "
-                  f"({len(batch)} tickers) …", end=" ", flush=True)
-            for attempt in range(3):
-                try:
-                    raw = yf.download(
-                        batch, start=start, auto_adjust=True,
-                        threads=True, progress=False
-                    )
-                    if raw.empty:
-                        print("empty"); break
-                    if isinstance(raw.columns, pd.MultiIndex):
-                        for t in batch:
-                            try:
-                                df = raw.xs(t, axis=1, level=1).dropna(how="all")
-                                if not df.empty and "Close" in df.columns:
-                                    result[t] = df[["Open","High","Low","Close","Volume"]]
-                            except KeyError:
-                                pass
-                    else:
-                        if not raw.empty:
-                            result[batch[0]] = raw[["Open","High","Low","Close","Volume"]]
-                    ok = sum(1 for t in batch if t in result)
-                    print(f"OK ({ok}/{len(batch)})")
-                    n_done += ok
-                    break
-                except Exception as e:
-                    if "Rate" in str(e) or "429" in str(e) or "Too Many" in str(e):
-                        wait = 30 * (attempt + 1)
-                        print(f"\n    Rate limited — waiting {wait}s …", end="", flush=True)
-                        time.sleep(wait)
-                    else:
-                        print(f"ERROR: {e}"); break
-            if idx < len(batches):
-                time.sleep(BATCH_SLEEP)
-
-        print(f"  Bulk download complete: {n_done}/{n_total} tickers")
-        return result
+        return download_bulk(yf, tickers, start, BATCH_SIZE, BATCH_SLEEP, sleep=time.sleep)
 
     @staticmethod
     def _clean_ohlc(df: pd.DataFrame) -> pd.DataFrame:

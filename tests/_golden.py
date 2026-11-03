@@ -20,7 +20,8 @@ def check(name: str, value) -> None:
     data = json.loads(PATH.read_text()) if PATH.exists() else {}
     if os.environ.get("UPDATE_GOLDEN"):
         data[name] = value
-        PATH.write_text(json.dumps(data, indent=1, sort_keys=True))
+        PATH.write_text("{\n" + ",\n".join(f"{json.dumps(k)}: {json.dumps(data[k], sort_keys=True)}"
+                                           for k in sorted(data)) + "\n}\n")
         return
     assert name in data, f"no golden for {name}; run with UPDATE_GOLDEN=1 on the pre-refactor code"
     if value != data[name]:
