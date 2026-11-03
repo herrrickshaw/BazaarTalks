@@ -108,3 +108,33 @@ def test_get_ohlc_bulk_cold_incremental_fresh(cache, monkeypatch, capsys):
     check("mdc/get_ohlc_bulk", {"first": {k: _to_dict(v) for k, v in sorted(first.items())},
                                "second": sorted(second), "third": {k: _to_dict(v) for k, v in third.items()},
                                "stdout": capsys.readouterr().out})
+
+
+def test_write_parquet_is_atomic_and_cleans_tmp(tmp_path, monkeypatch):
+    pytest.importorskip("pyarrow")
+    path = tmp_path / "x.parquet"
+    mdc.MarketCache._write_parquet(path, _frame(1))
+    assert path.exists() and not path.with_suffix(".tmp").exists()
+    assert len(pd.read_parquet(path)) == 12
+
+    def boom(self, tmp, **kw):
+        tmp.write_bytes(b"partial")
+        raise OSError("disk full")
+
+    monkeypatch.setattr(pd.DataFrame, "to_parquet", boom)
+    with pytest.raises(OSError):
+        mdc.MarketCache._write_parquet(tmp_path / "y.parquet", _frame(2))
+    assert not (tmp_path / "y.tmp").exists() and not (tmp_path / "y.parquet").exists()
+
+
+def test_clean_ohlc_empty_unparseable_index_and_fallback(monkeypatch):
+    assert mdc.MarketCache._clean_ohlc(pd.DataFrame()).empty
+    df = _frame(4)
+    df.index = list(df.index[:-1].astype(str)) + ["not-a-date"]
+    out = mdc.MarketCache._clean_ohlc(df)
+    assert isinstance(out.index, pd.DatetimeIndex) and out.index.is_monotonic_increasing
+    monkeypatch.setattr(mdc, "_clean_ohlcv_central", None)
+    dup = pd.concat([_frame(5), _frame(5).iloc[-2:]])
+    dup.iloc[3, 3] = np.nan
+    fb = mdc.MarketCache._clean_ohlc(dup)
+    check("mdc/clean_fallback", {"n": len(fb), "nan": int(fb.isna().sum().sum()), "close": _to_dict(fb)[0]["Close"]})

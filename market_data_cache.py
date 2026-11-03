@@ -68,6 +68,7 @@ import pandas as pd
 warnings.filterwarnings("ignore")
 
 from market_data_download import download_bulk, download_single
+from market_data_io import clean_ohlc, write_parquet_atomic
 
 try:
     import yfinance as yf
@@ -521,37 +522,13 @@ class MarketCache:
 
     @staticmethod
     def _clean_ohlc(df: pd.DataFrame) -> pd.DataFrame:
-        """Clean OHLC before caching — delegates to the central clean_ohlcv gate.
-
-        Cache-specific prep: coerce to a sorted DatetimeIndex and drop unparseable
-        dates first, then hand off to stock_utils.clean_ohlcv() so the cache stores
-        exactly the same hygiene (numeric coercion, dedup, non-positive-price drop,
-        OHLC-integrity repair, bad-print/split neutralisation) every consumer sees.
-        Falls back to the prior ffill/bfill behaviour if stock_utils is unavailable.
-        """
-        if df.empty:
-            return df
-        if not isinstance(df.index, pd.DatetimeIndex):
-            df.index = pd.to_datetime(df.index, errors="coerce")
-        df = df[~df.index.isna()].sort_index()
-        if _clean_ohlcv_central is not None:
-            cleaned = _clean_ohlcv_central(df, min_bars=1)
-            return cleaned if cleaned is not None else df.iloc[0:0]
-        # fallback (stock_utils not importable)
-        df = df[~df.index.duplicated(keep="last")]
-        return df.ffill().bfill()
+        """Clean OHLC before caching (see market_data_io.clean_ohlc)."""
+        return clean_ohlc(df, _clean_ohlcv_central)
 
     @staticmethod
     def _write_parquet(path: Path, df: pd.DataFrame):
         """Atomic write: temp file → rename (prevents corruption on crash)."""
-        tmp = path.with_suffix(".tmp")
-        try:
-            df.to_parquet(tmp, compression="snappy", index=True)
-            tmp.rename(path)
-        except Exception:
-            if tmp.exists():
-                tmp.unlink()
-            raise
+        write_parquet_atomic(path, df)
 
 
 # ── Module-level helpers (used by other scripts) ──────────────────────────────
