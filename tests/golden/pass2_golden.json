@@ -1,4 +1,153 @@
 {
+ "get_regime/bear": {
+  "dma200": 92.27,
+  "dma200_sl": NaN,
+  "fii_net_cr": null,
+  "fii_sentiment": "UNKNOWN",
+  "nifty_52w_h": null,
+  "nifty_52w_l": null,
+  "nifty_last": 84.67,
+  "pct_from_52wh": null,
+  "pct_from_dma200": -8.24,
+  "regime": "BEAR",
+  "timestamp": "T",
+  "vix": null
+ },
+ "get_regime/bear_extreme": {
+  "dma200": 39.8,
+  "dma200_sl": -2.0,
+  "fii_net_cr": null,
+  "fii_sentiment": "UNKNOWN",
+  "nifty_52w_h": null,
+  "nifty_52w_l": null,
+  "nifty_last": -0.36,
+  "pct_from_52wh": null,
+  "pct_from_dma200": -100.91,
+  "regime": "BEAR_EXTREME",
+  "timestamp": "T",
+  "vix": 30.0
+ },
+ "get_regime/bull_calm": {
+  "dma200": 160.2,
+  "dma200_sl": 2.0,
+  "fii_net_cr": 6.0,
+  "fii_sentiment": "BUYING",
+  "nifty_52w_h": 26000.0,
+  "nifty_52w_l": 20000.0,
+  "nifty_last": 25000.0,
+  "pct_from_52wh": -3.85,
+  "pct_from_dma200": 24.62,
+  "regime": "BULL",
+  "timestamp": "T",
+  "vix": 13.2
+ },
+ "get_regime/bull_volatile": {
+  "dma200": 160.2,
+  "dma200_sl": 2.0,
+  "fii_net_cr": -6.0,
+  "fii_sentiment": "SELLING",
+  "nifty_52w_h": 0.0,
+  "nifty_52w_l": 0.0,
+  "nifty_last": 1.0,
+  "pct_from_52wh": null,
+  "pct_from_dma200": 24.62,
+  "regime": "BULL_VOLATILE",
+  "timestamp": "T",
+  "vix": 21.0
+ },
+ "get_regime/no_libs": {
+  "fii_net_cr": null,
+  "fii_sentiment": "UNKNOWN",
+  "nifty_52w_h": null,
+  "nifty_52w_l": null,
+  "nifty_last": null,
+  "pct_from_52wh": null,
+  "regime": "SIDEWAYS",
+  "timestamp": "T",
+  "vix": null
+ },
+ "get_regime/sideways": {
+  "dma200": 100.0,
+  "dma200_sl": 0.0,
+  "fii_net_cr": null,
+  "fii_sentiment": "UNKNOWN",
+  "nifty_52w_h": 10.0,
+  "nifty_52w_l": 5.0,
+  "nifty_last": 10.0,
+  "pct_from_52wh": 0.0,
+  "pct_from_dma200": -0.37,
+  "regime": "SIDEWAYS",
+  "timestamp": "T",
+  "vix": null
+ },
+ "get_regime/yf_empty_and_error": {
+  "fii_net_cr": null,
+  "fii_sentiment": "UNKNOWN",
+  "nifty_52w_h": null,
+  "nifty_52w_l": null,
+  "nifty_last": null,
+  "pct_from_52wh": null,
+  "regime": "SIDEWAYS",
+  "timestamp": "T",
+  "vix": null
+ },
+ "get_regime/yf_raises": {
+  "fii_net_cr": null,
+  "fii_sentiment": "UNKNOWN",
+  "nifty_52w_h": null,
+  "nifty_52w_l": null,
+  "nifty_last": null,
+  "pct_from_52wh": null,
+  "regime": "SIDEWAYS",
+  "timestamp": "T",
+  "vix": 18.0
+ },
+ "pit_main": {
+  "err": "7 usable series\nliquidity filter (median $-vol >= $15,000,000/day): 7 -> 4 tradeable names\n  2024-04-01: breakouts=0 F7=0 triple=0\n  2024-05-01: breakouts=0 F7=0 triple=0\n  2024-06-01: breakouts=0 F7=0 triple=0\n  2024-07-01: breakouts=0 F7=0 triple=0\n  2024-08-01: breakouts=0 F7=0 triple=0\n  2024-09-01: breakouts=2 F7=0 triple=0\n  2024-10-01: breakouts=0 F7=0 triple=0\n  2024-11-01: breakouts=1 F7=1 triple=1\n  2024-12-01: breakouts=0 F7=0 triple=0\n  2025-01-01: breakouts=0 F7=0 triple=0\n  2025-02-01: breakouts=1 F7=1 triple=1\n  2025-03-01: breakouts=1 F7=0 triple=0\n",
+  "out": "\n=== TRIPLE-HIT vs GATE COMPONENTS \u2014 5y US, net of cost ===\n         arm  n_months avg_picks  avg_mth%  ann_return%  hit_rate%  sharpe  max_dd%\n    A_darvas         4       1.2     3.309        42.76       25.0    1.42     -1.6\n B_darvas_F7         2       1.0    -0.796        -9.16        0.0   -5.36     -1.3\nC_triple_hit         2       1.0    -0.796        -9.16        0.0   -5.36     -1.3\n   BENCH_all        12       all     3.783        55.18       83.3    3.92     -2.1\n\nA=Darvas \u00b7 B=Darvas+F\u22657 \u00b7 C=Darvas+F\u22657+CoffeeCan (Triple-Hit) \u00b7 BENCH=equal-weight all. Net of 0.10% US round-trip.\n",
+  "rows": [
+   [
+    "A_darvas",
+    4,
+    "1.2",
+    3.309,
+    42.76,
+    25.0,
+    1.42,
+    -1.6
+   ],
+   [
+    "B_darvas_F7",
+    2,
+    "1.0",
+    -0.796,
+    -9.16,
+    0.0,
+    -5.36,
+    -1.3
+   ],
+   [
+    "C_triple_hit",
+    2,
+    "1.0",
+    -0.796,
+    -9.16,
+    0.0,
+    -5.36,
+    -1.3
+   ],
+   [
+    "BENCH_all",
+    12,
+    "all",
+    3.783,
+    55.18,
+    83.3,
+    3.92,
+    -2.1
+   ]
+  ]
+ },
  "serve_routes": [
   [
    "GET",
