@@ -31,7 +31,6 @@ import io
 import json
 import sys
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -228,7 +227,8 @@ def compute_darvas_box(df: pd.DataFrame, confirm: int = DARVAS_CONFIRM) -> dict:
 
 
 # ── Fundamental helpers (shared; see stock_utils.py) ──────────────────────────
-from scan_common import asia_fundamental_scan
+from scan_common import (OHLC_SIGNALS, asia_fundamental_scan, last_two_closes, ma200_and_distance,
+                         make_write_sheet, run_fundamental_pool, trend_signal)
 
 
 # ── Fundamental scan (yfinance, .KS / .KQ) ───────────────────────────────────
@@ -288,166 +288,129 @@ def style_sheet(ws):
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 
-def main():
+def _parse_args(argv=None):
     parser = argparse.ArgumentParser(description="Full KRX scanner — Darvas + Piotroski + Coffee Can")
     parser.add_argument("--kospi-only", action="store_true", help="Scan KOSPI only (skip KOSDAQ)")
     parser.add_argument("--top",        type=int, default=0, help="Limit to first N tickers")
     parser.add_argument("--no-scans",   action="store_true", help="Skip fundamental scans")
     parser.add_argument("--workers",    type=int, default=MAX_WORKERS, help="Parallel threads")
-    args = parser.parse_args()
+    return parser.parse_args(argv)
 
-    print(f"\n{'#'*60}")
-    print(f"  FULL KOREA (KRX) MARKET SCAN")
-    print(f"  Started: {datetime.now().strftime('%d %b %Y  %H:%M:%S')}")
-    print(f"{'#'*60}\n")
 
-    # Stage 1 — Universe
-    print("Stage 1 — Building KRX equity universe …")
-    universe = build_krx_universe(kospi_only=args.kospi_only)
-    code_meta = {s["code"]: s for s in universe}
+def _technical_row(stock_info: dict, df: pd.DataFrame) -> dict:
+    """All_Stocks row for one KRX stock: price (KRW), 200-MA trend (may be None on a 3-month window), Darvas box."""
+    code = stock_info["code"]
+    darv    = compute_darvas_box(df)
+    closes, ltp, _prev, chg_pct = last_two_closes(df, 0)
+    ma200, dist_ma = ma200_and_distance(closes, ltp, 0)
+    trend   = trend_signal(dist_ma, "Need 200+ days")
+    return {
+        "Code":               code,
+        "Name":               stock_info.get("name", ""),
+        "Market":             stock_info.get("market", ""),
+        "YF_Ticker":          f"{code}{stock_info.get('yf_suffix', '.KS')}",
+        "LTP_KRW":            ltp,
+        "Change%":            chg_pct,
+        "200_Day_MA":         ma200,
+        "Distance_to_200MA%": dist_ma,
+        "Trend_Signal":       trend,
+        "Darvas_Signal":      darv.get("signal"),
+        "Box_Top":            darv.get("box_top"),
+        "Box_Bottom":         darv.get("box_bottom"),
+        "Upside_to_Top%":     darv.get("upside_pct"),
+        "Position_in_Box%":   darv.get("pos_in_box"),
+        "Data_Points":        darv.get("data_points"),
+    }
 
-    if args.top:
-        universe = universe[:args.top]
-        print(f"  (limited to first {args.top} tickers)")
 
-    print(f"  Total: {len(universe)} tickers "
-          f"({sum(1 for s in universe if s['market']=='KOSPI')} KOSPI + "
-          f"{sum(1 for s in universe if s['market']=='KOSDAQ')} KOSDAQ)")
-
-    # Stage 2 — OHLC via pykrx
-    print(f"\nStage 2 — Fetching OHLC from KRX for {len(universe)} tickers …")
-    ohlc = fetch_krx_ohlc(universe, months=3)
-
-    # Stage 3 — Darvas Box + 200-day MA
-    # For 200-day MA we need ~10 months extra; fetch separately for a 12-month window
-    # to compute MA200 for breakout candidates (avoids re-fetching entire universe)
-    print("\nStage 3 — Darvas Box screen …")
+def _technical_stage(universe: list, ohlc: dict) -> tuple:
+    """(all_rows, darvas_rows, breakout_info) where breakout_info is [(code, yf_suffix)]."""
     all_rows, darvas_rows, breakout_info = [], [], []
-
     for stock_info in universe:
-        code = stock_info["code"]
-        df   = ohlc.get(code)
+        df = ohlc.get(stock_info["code"])
         if df is None:
             continue
-
-        darv    = compute_darvas_box(df)
-        closes  = pd.to_numeric(df["Close"], errors="coerce").dropna()
-        ltp     = round(float(closes.iloc[-1]), 0)  if not closes.empty  else None
-        prev    = round(float(closes.iloc[-2]), 0)  if len(closes) >= 2  else None
-        chg_pct = round((ltp - prev) / prev * 100, 2) if (ltp and prev) else None
-
-        # 200-day MA from 3-month window (may be None; acceptable for Darvas screen)
-        ma200   = round(closes.rolling(200).mean().iloc[-1], 0) if len(closes) >= 200 else None
-        dist_ma = round((ltp - ma200) / ma200 * 100, 2) if (ma200 and ltp) else None
-        trend   = ("Above 200MA (Uptrend)"      if dist_ma and dist_ma >  5 else
-                   "Below 200MA (Downtrend)"    if dist_ma and dist_ma < -5 else
-                   "Near 200MA (Consolidation)" if dist_ma else "Need 200+ days")
-
-        row = {
-            "Code":               code,
-            "Name":               stock_info.get("name", ""),
-            "Market":             stock_info.get("market", ""),
-            "YF_Ticker":          f"{code}{stock_info.get('yf_suffix', '.KS')}",
-            "LTP_KRW":            ltp,
-            "Change%":            chg_pct,
-            "200_Day_MA":         ma200,
-            "Distance_to_200MA%": dist_ma,
-            "Trend_Signal":       trend,
-            "Darvas_Signal":      darv.get("signal"),
-            "Box_Top":            darv.get("box_top"),
-            "Box_Bottom":         darv.get("box_bottom"),
-            "Upside_to_Top%":     darv.get("upside_pct"),
-            "Position_in_Box%":   darv.get("pos_in_box"),
-            "Data_Points":        darv.get("data_points"),
-        }
+        row = _technical_row(stock_info, df)
         all_rows.append(row)
-        if darv.get("signal") in ("BREAKOUT_BUY", "BREAKDOWN_SELL"):
+        if row["Darvas_Signal"] in OHLC_SIGNALS:
             darvas_rows.append(row.copy())
-        if darv.get("signal") == "BREAKOUT_BUY":
-            breakout_info.append((code, stock_info.get("yf_suffix", ".KS")))
+        if row["Darvas_Signal"] == "BREAKOUT_BUY":
+            breakout_info.append((stock_info["code"], stock_info.get("yf_suffix", ".KS")))
+    return all_rows, darvas_rows, breakout_info
 
-    print(f"  Breakout BUY:   {len(breakout_info)}")
-    print(f"  Breakdown SELL: {sum(1 for r in darvas_rows if r['Darvas_Signal'] == 'BREAKDOWN_SELL')}")
-    print(f"  In Box:         {len(all_rows) - len(darvas_rows)}")
 
-    # Stage 4 — Fundamentals on breakout candidates
+def _cap_candidates(breakout_info: list, darvas_rows: list) -> list:
+    """Keep only the MAX_FUND_CANDIDATES freshest breakouts (smallest distance to the box top)."""
+    def _upside(code_sfx):
+        code_v = code_sfx[0]
+        row = next((r for r in darvas_rows if r["Code"] == code_v), None)
+        return abs(row.get("Upside_to_Top%") or 999)
+    if len(breakout_info) > MAX_FUND_CANDIDATES:
+        breakout_info = sorted(breakout_info, key=_upside)[:MAX_FUND_CANDIDATES]
+        print(f"  (capped to {MAX_FUND_CANDIDATES} freshest breakouts)")
+    return breakout_info
+
+
+def _fund_row(code: str, sfx: str, tech: dict, res: dict) -> dict:
+    """Fundamentals row: technical columns plus the scan result."""
+    return {
+        "Code":            code,
+        "Name":            tech.get("Name"),
+        "Market":          tech.get("Market"),
+        "YF_Ticker":       f"{code}{sfx}",
+        "LTP_KRW":         tech.get("LTP_KRW"),
+        "Change%":         tech.get("Change%"),
+        "Darvas_Signal":   tech.get("Darvas_Signal"),
+        "Upside_to_Top%":  tech.get("Upside_to_Top%"),
+        "200_Day_MA":      tech.get("200_Day_MA"),
+        "Piotroski_Score": res.get("f_score"),
+        "Piotroski_Strong":("YES" if res.get("f_strong") else "NO"),
+        "CoffeeCan":       res.get("cc_qualifies", "FAIL"),
+        "CC_Score":        res.get("cc_score", "—"),
+        "Rev_CAGR%":       res.get("cc_rev_cagr"),
+        "ROCE_Avg%":       res.get("cc_roce_avg"),
+        "Debt_Equity":     res.get("cc_debt_equity"),
+        "MCap_100M_KRW":   res.get("market_cap_b_krw"),
+        "Error":           res.get("error", ""),
+    }
+
+
+def _fundamental_stage(breakout_info: list, darvas_rows: list, workers: int) -> tuple:
+    """(fund_rows, triple_rows) for the capped breakout candidates."""
     fund_rows, triple_rows = [], []
+    print(f"\nStage 4 — Fundamental scans ({len(breakout_info)} candidates, "
+          f"{workers} workers) …")
 
-    if not args.no_scans and breakout_info:
-        # Cap to freshest breakouts
-        def _upside(code_sfx):
-            code_v = code_sfx[0]
-            row = next((r for r in darvas_rows if r["Code"] == code_v), None)
-            return abs(row.get("Upside_to_Top%") or 999)
-        if len(breakout_info) > MAX_FUND_CANDIDATES:
-            breakout_info = sorted(breakout_info, key=_upside)[:MAX_FUND_CANDIDATES]
-            print(f"  (capped to {MAX_FUND_CANDIDATES} freshest breakouts)")
+    def handle(key, res, done):
+        code, sfx = key
+        tech = next((r for r in darvas_rows if r["Code"] == code), {})
+        fund_row = _fund_row(code, sfx, tech, res)
+        fund_rows.append(fund_row)
+        if res.get("f_strong") and res.get("cc_qualifies") == "PASS":
+            triple_rows.append(fund_row.copy())
+        if done % 20 == 0 or done == len(breakout_info):
+            print(f"    {done}/{len(breakout_info)} done  "
+                  f"(triple hits: {len(triple_rows)})")
 
-        print(f"\nStage 4 — Fundamental scans ({len(breakout_info)} candidates, "
-              f"{args.workers} workers) …")
-        done = 0
-        with ThreadPoolExecutor(max_workers=args.workers) as pool:
-            futures = {pool.submit(fundamental_scan, code, sfx): (code, sfx)
-                       for code, sfx in breakout_info}
-            for future in as_completed(futures):
-                code, sfx = futures[future]
-                done += 1
-                try:
-                    res  = future.result()
-                    tech = next((r for r in darvas_rows if r["Code"] == code), {})
-                    fund_row = {
-                        "Code":            code,
-                        "Name":            tech.get("Name"),
-                        "Market":          tech.get("Market"),
-                        "YF_Ticker":       f"{code}{sfx}",
-                        "LTP_KRW":         tech.get("LTP_KRW"),
-                        "Change%":         tech.get("Change%"),
-                        "Darvas_Signal":   tech.get("Darvas_Signal"),
-                        "Upside_to_Top%":  tech.get("Upside_to_Top%"),
-                        "200_Day_MA":      tech.get("200_Day_MA"),
-                        "Piotroski_Score": res.get("f_score"),
-                        "Piotroski_Strong":("YES" if res.get("f_strong") else "NO"),
-                        "CoffeeCan":       res.get("cc_qualifies", "FAIL"),
-                        "CC_Score":        res.get("cc_score", "—"),
-                        "Rev_CAGR%":       res.get("cc_rev_cagr"),
-                        "ROCE_Avg%":       res.get("cc_roce_avg"),
-                        "Debt_Equity":     res.get("cc_debt_equity"),
-                        "MCap_100M_KRW":   res.get("market_cap_b_krw"),
-                        "Error":           res.get("error", ""),
-                    }
-                    fund_rows.append(fund_row)
-                    if res.get("f_strong") and res.get("cc_qualifies") == "PASS":
-                        triple_rows.append(fund_row.copy())
-                    if done % 20 == 0 or done == len(breakout_info):
-                        print(f"    {done}/{len(breakout_info)} done  "
-                              f"(triple hits: {len(triple_rows)})")
-                except Exception as e:
-                    print(f"    {code}: error — {e}")
-    else:
-        print("\nStage 4 — Skipped")
+    run_fundamental_pool([((code, sfx), (code, sfx)) for code, sfx in breakout_info],
+                         fundamental_scan, workers, handle, label=lambda key: key[0])
+    return fund_rows, triple_rows
 
-    # Stage 5 — Excel
-    print("\nStage 5 — Saving Excel workbook …")
+
+def _save_workbook(all_rows, darvas_rows, fund_rows, triple_rows):
+    """Write the four-sheet Excel report and return its path."""
     date_str = datetime.today().strftime("%Y%m%d_%H%M")
     path = DOWNLOAD_DIR / f"korea_market_scan_{date_str}.xlsx"
-
     with pd.ExcelWriter(path, engine="openpyxl") as writer:
-        def write_sheet(rows, name, sort_col=None):
-            if not rows:
-                pd.DataFrame().to_excel(writer, sheet_name=name, index=False)
-                return
-            df = pd.DataFrame(rows)
-            if sort_col and sort_col in df.columns:
-                df = df.sort_values(sort_col, ascending=False)
-            df.to_excel(writer, sheet_name=name, index=False)
-            if OPENPYXL_OK:
-                style_sheet(writer.sheets[name])
-
+        write_sheet = make_write_sheet(writer, style=style_sheet if OPENPYXL_OK else None)
         write_sheet(all_rows,    "All_Stocks",    sort_col="Change%")
         write_sheet(darvas_rows, "Darvas_Signals", sort_col="Upside_to_Top%")
         write_sheet(fund_rows,   "Fundamentals",  sort_col="Piotroski_Score")
         write_sheet(triple_rows, "Triple_Hits",   sort_col="Piotroski_Score")
+    return path
 
+
+def _print_summary(all_rows, breakout_info, fund_rows, triple_rows, path) -> None:
     print(f"\n{'='*60}")
     print(f"  SCAN COMPLETE — {datetime.now().strftime('%d %b %Y  %H:%M:%S')}")
     print(f"  KRX stocks scanned:    {len(all_rows)}")
@@ -464,6 +427,51 @@ def main():
         print("\n  No Triple Hit stocks found today.")
     print(f"\n  📊 Excel saved → {path}\n")
     print(f"{'='*60}\n")
+
+
+def main():
+    args = _parse_args()
+
+    print(f"\n{'#'*60}")
+    print("  FULL KOREA (KRX) MARKET SCAN")
+    print(f"  Started: {datetime.now().strftime('%d %b %Y  %H:%M:%S')}")
+    print(f"{'#'*60}\n")
+
+    # Stage 1 — Universe
+    print("Stage 1 — Building KRX equity universe …")
+    universe = build_krx_universe(kospi_only=args.kospi_only)
+
+    if args.top:
+        universe = universe[:args.top]
+        print(f"  (limited to first {args.top} tickers)")
+
+    print(f"  Total: {len(universe)} tickers "
+          f"({sum(1 for s in universe if s['market']=='KOSPI')} KOSPI + "
+          f"{sum(1 for s in universe if s['market']=='KOSDAQ')} KOSDAQ)")
+
+    # Stage 2 — OHLC via pykrx
+    print(f"\nStage 2 — Fetching OHLC from KRX for {len(universe)} tickers …")
+    ohlc = fetch_krx_ohlc(universe, months=3)
+
+    # Stage 3 — Darvas Box + 200-day MA (from the 3-month window, so the MA is usually None)
+    print("\nStage 3 — Darvas Box screen …")
+    all_rows, darvas_rows, breakout_info = _technical_stage(universe, ohlc)
+    print(f"  Breakout BUY:   {len(breakout_info)}")
+    print(f"  Breakdown SELL: {sum(1 for r in darvas_rows if r['Darvas_Signal'] == 'BREAKDOWN_SELL')}")
+    print(f"  In Box:         {len(all_rows) - len(darvas_rows)}")
+
+    # Stage 4 — Fundamentals on breakout candidates
+    fund_rows, triple_rows = [], []
+    if not args.no_scans and breakout_info:
+        breakout_info = _cap_candidates(breakout_info, darvas_rows)
+        fund_rows, triple_rows = _fundamental_stage(breakout_info, darvas_rows, args.workers)
+    else:
+        print("\nStage 4 — Skipped")
+
+    # Stage 5 — Excel
+    print("\nStage 5 — Saving Excel workbook …")
+    path = _save_workbook(all_rows, darvas_rows, fund_rows, triple_rows)
+    _print_summary(all_rows, breakout_info, fund_rows, triple_rows, path)
 
 
 if __name__ == "__main__":
