@@ -80,9 +80,9 @@ def _connect():
     return con
 
 
-def create_app():
-    from fastapi import FastAPI, HTTPException, Query
-    app = FastAPI(title="Global Market Scanners API", version="1.0")
+def _register_query_routes(app) -> None:
+    """Health, coverage and warehouse-query routes (read-only)."""
+    from fastapi import HTTPException, Query
 
     @app.get("/health")
     def health():
@@ -159,6 +159,11 @@ def create_app():
         finally:
             con.close()
 
+
+def _register_ticker_routes(app) -> None:
+    """Single-ticker detail and SVG chart routes."""
+    from fastapi import HTTPException, Query
+
     @app.get("/ticker/{symbol}")
     def ticker(symbol: str, market: str = Query(...)):
         """Single-ticker detail: recent OHLC bars plus whichever of fundamentals/
@@ -198,8 +203,10 @@ def create_app():
                                  title=f"{symbol.upper()} close, last {len(closes)} bars")
         return Response(content=svg, media_type="image/svg+xml")
 
-    # ── watchlist CRUD (versioned) — the write surface, over vcrud ──────────────
-    from fastapi import Body
+
+def _register_watchlist_routes(app) -> None:
+    """Versioned watchlist CRUD (the write surface, over vcrud)."""
+    from fastapi import Body, HTTPException
 
     def _vc():
         import watchlist_store as vcrud
@@ -270,6 +277,16 @@ def create_app():
         finally:
             con.close()
 
+
+# Route groups registered by create_app(); append a registrar to add a new group.
+ROUTE_REGISTRARS = (_register_query_routes, _register_ticker_routes, _register_watchlist_routes)
+
+
+def create_app():
+    from fastapi import FastAPI
+    app = FastAPI(title="Global Market Scanners API", version="1.0")
+    for register in ROUTE_REGISTRARS:
+        register(app)
     return app
 
 

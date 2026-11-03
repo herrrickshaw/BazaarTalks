@@ -73,3 +73,6 @@ page-*.jpg
 mp-*.jpg
 node_modules/
 graphify-out/cache/stat-index.json
+
+# local virtualenv
+.venv/
