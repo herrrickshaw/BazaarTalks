@@ -12,7 +12,7 @@ yfinance==1.2.0          # OHLC + fundamentals, all markets
 requests==2.32.5
 
 # --- Market-specific universe/data libs ---
-nsepython==2.97          # India: NSE universe + quotes
+nsepython==2.101          # India: NSE universe + quotes
 bseindia==1.1            # India: BSE listings
 kabupy                   # Japan: JPX/TSE universe (unpinned upstream)
 pykrx                    # South Korea: KRX/Naver (unpinned upstream)
