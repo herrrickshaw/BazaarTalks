@@ -199,28 +199,30 @@ class MarketCache:
             self._mem[ticker] = df
             return df
 
-        if path.exists() and not force:
+        # Incremental update only when the parquet exists AND the meta index still
+        # knows its last date; a parquet whose meta has no "to" (index lost or
+        # rebuilt) used to fall off the end of this method and return None.
+        last_date = self._last_cached_date(key) if (path.exists() and not force) else None
+        if last_date:
             # Cache exists but may be stale — incremental update
             existing  = pd.read_parquet(path)
-            last_date = self._last_cached_date(key)
-            if last_date:
-                # Only fetch from the day after last cached date
-                start = last_date + timedelta(days=1)
-                if start >= date.today():
-                    # Nothing to fetch — already up to date
-                    return existing
-                new_df = self._yf_download_single(ticker, start=start)
-                if not new_df.empty:
-                    combined = pd.concat([existing, new_df]).sort_index()
-                    combined = combined[~combined.index.duplicated(keep="last")]
-                    combined = self._clean_ohlc(combined)
-                    self._write_parquet(path, combined)
-                    self._update_meta(key, path, combined)
-                    if self.verbose:
-                        print(f"  Cache updated: {ticker} +{len(new_df)} rows "
-                              f"(total {len(combined)})")
-                    return combined
+            # Only fetch from the day after last cached date
+            start = last_date + timedelta(days=1)
+            if start >= date.today():
+                # Nothing to fetch — already up to date
                 return existing
+            new_df = self._yf_download_single(ticker, start=start)
+            if not new_df.empty:
+                combined = pd.concat([existing, new_df]).sort_index()
+                combined = combined[~combined.index.duplicated(keep="last")]
+                combined = self._clean_ohlc(combined)
+                self._write_parquet(path, combined)
+                self._update_meta(key, path, combined)
+                if self.verbose:
+                    print(f"  Cache updated: {ticker} +{len(new_df)} rows "
+                          f"(total {len(combined)})")
+                return combined
+            return existing
         else:
             # Cold start — download full history
             start = date.today() - timedelta(days=OHLC_YEARS * 365 + 30)

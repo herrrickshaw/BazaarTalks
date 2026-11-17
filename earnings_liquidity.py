@@ -94,6 +94,7 @@ def per_market_summary(panel_by_market: dict, min_events: int = 40) -> pd.DataFr
 
 # ── data assembly (offline, point-in-time) ────────────────────────────────────
 from marketdata import wide as _wide
+import marketdata  # main() calls marketdata.market_list()
 
 
 def parse_submissions(payload: dict, forms=("10-Q", "10-K")) -> list:

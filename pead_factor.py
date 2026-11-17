@@ -42,6 +42,7 @@ import warnings
 
 import numpy as np
 import pandas as pd
+import marketdata  # main() calls marketdata.market_list()
 
 warnings.filterwarnings("ignore")
 
