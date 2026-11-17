@@ -19,7 +19,7 @@ pykrx                    # South Korea: KRX/Naver (unpinned upstream)
 # Europe (Euro Stoxx 50) uses yfinance only — no extra lib.
 
 # --- ML signal engine (US/India scanners + cross-market viability) ---
-scikit-learn==1.6.1      # Ridge/Linear regression directional signal
+scikit-learn==1.9.1      # Ridge/Linear regression directional signal
 scipy==1.13.1
 
 # --- Streaming / storage frameworks (MANDATORY — market_store.py raises
