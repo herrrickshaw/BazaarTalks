@@ -23,7 +23,7 @@ jobs:
     name: secrets (working tree)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           lfs: false
       - name: Install gitleaks
@@ -42,7 +42,7 @@ jobs:
     name: citations (references.bib)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           lfs: false
       - name: Run citation check
