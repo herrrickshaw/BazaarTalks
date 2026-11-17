@@ -4,7 +4,7 @@
 # --- Core data ---
 pandas==2.3.3
 numpy==2.0.2
-pyarrow==21.0.0          # parquet read/write (dataset outputs)
+pyarrow==26.0.1          # parquet read/write (dataset outputs)
 openpyxl==3.1.5          # styled Excel workbook export
 
 # --- Market data (shared) ---
