@@ -1247,3 +1247,53 @@ def test_bq_quality_quintiles_monotone():
 
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-q"]))
+
+
+# ── regressions found running on real data (23 Oct 2026) ──────────────────────
+def test_high_roe_low_de_excludes_negative_de():
+    duckdb = pytest.importorskip("duckdb")
+    import serve
+    import warehouse
+    con = duckdb.connect()
+    con.execute("CREATE TABLE fundamentals(market TEXT, ticker TEXT, roe DOUBLE, de DOUBLE, "
+                "pe DOUBLE, sector TEXT)")
+    con.execute("INSERT INTO fundamentals VALUES ('US','OK',20,0.5,10,'x'), "
+                "('US','NEG',30,-4.0,10,'x'), ('US','HI',25,3.0,10,'x'), ('US','NULL',22,NULL,10,'x')")
+    for sql in (serve.build_query("high_roe_low_de", 10), warehouse.SHOWS["high_roe_low_de"]):
+        assert [r[1] for r in con.execute(sql).fetchall()] == ["OK"]
+
+
+def test_is_lfs_pointer(tmp_path):
+    pytest.importorskip("duckdb")
+    from warehouse import _is_lfs_pointer
+    ptr = tmp_path / "a.parquet"
+    ptr.write_text("version https://git-lfs.github.com/spec/v1\noid sha256:ab\nsize 1\n")
+    real = tmp_path / "b.parquet"
+    real.write_bytes(b"PAR1" + b"\0" * 100)
+    assert _is_lfs_pointer(str(ptr)) is True
+    assert _is_lfs_pointer(str(real)) is False
+    assert _is_lfs_pointer(str(tmp_path / "missing.parquet")) is False
+
+
+def test_dvm_global_survives_sparse_days_and_gaps(tmp_path, monkeypatch):
+    """One near-empty session and one isolated missing bar used to NaN-poison every
+    rolling window, so ADX / vol_ratio / MFI came back null and screens had 0 hits."""
+    import dvm_global
+    rng = np.random.default_rng(1)
+    dates = pd.bdate_range("2025-01-01", periods=300)
+    rows = []
+    for i in range(20):
+        px = 100 * np.exp(np.cumsum(rng.normal(8e-4, 0.01, len(dates))))
+        for j, (d, p) in enumerate(zip(dates, px)):
+            if j == 290 and i != 0:           # sparse session: only symbol 0 has a bar
+                continue
+            if i == 1 and j == 295:           # isolated gap in a single symbol
+                continue
+            rows.append((d, p, p * 1.01, p * 0.99, p, 1_000_000 + int(rng.integers(0, 1e5)), f"S{i}"))
+    pd.DataFrame(rows, columns=["Date", "Open", "High", "Low", "Close", "Volume", "Symbol"]) \
+        .to_parquet(tmp_path / "cleaned_long_XX.parquet")
+    monkeypatch.setattr(dvm_global, "SEED", str(tmp_path))
+    out, _ = dvm_global.process_market("XX", "momentum_breakout")
+    assert len(out) == 20
+    for col in ("adx", "vol_ratio", "mfi"):
+        assert sum(pd.notna(r[col]) for r in out) >= 19, col
