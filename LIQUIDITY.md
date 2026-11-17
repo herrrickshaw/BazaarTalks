@@ -57,7 +57,7 @@ Pure cores (`amihud_illiq`, `zero_return_frac`, `capacity_score`, `illiq_pctile`
 enforced by CI. Windows default to ~6-month lookback / 1-month forward to fit the
 seed data's ~1 trading year.
 
-## Multi-year test — the premium IS significant (`liquidity_multiyear.py`)
+## Multi-year test (`liquidity_multiyear.py`)
 The 1-year seed cache was too short to detect the premium (single cross-section,
 non-monotone). Fetching **10 years** of daily data (199 liquid US names, governed
 yfinance) and running a **Fama-MacBeth** test — sort into ILLIQ quintiles each quarter,
@@ -68,10 +68,12 @@ average quintile forward returns across **35 quarterly cross-sections (5,723 sto
 |---|---|---|---|---|---|
 | mean forward return | +4.16% | +2.62% | +4.54% | +3.32% | **+8.40%** |
 
-**Q5−Q1 = +4.24% per quarter, t = 2.16 (|t|>2), avg IC +0.055 → a SIGNIFICANT
-liquidity premium** (Amihud-Mendelson 1986; Amihud 2002): illiquid stocks earn more.
-The measure and the premium are both validated once the sample is long enough — the
-1-year result wasn't wrong, just under-powered.
+**Q5−Q1 = +4.24% per quarter, t = 2.16, avg IC +0.055**, gross of trading costs and from a
+single test, consistent with a liquidity premium (Amihud-Mendelson 1986; Amihud 2002): illiquid stocks earn more.
+The 1-year result was under-powered rather than wrong.
+
+> **Later re-test, 2026-10:** on the ~1,500 most liquid US names (weekly formation 2017–2026, HAC t-stats, Benjamini-Hochberg correction across 240 tests) the 63-day Amihud-illiquidity rank IC is **−0.041 (t −2.8)**: less liquid names did *worse*. The universe, period and method differ from the 199-name test above, so neither result settles it; the premium is unconfirmed. See the [re-test](https://github.com/herrrickshaw/global-market-scanners/blob/research/jd-signal-validation/SIGNAL_RESEARCH_RESULTS.md).
+
 
 ```bash
 python liquidity_multiyear.py --n 250 --years 10 --horizon 63
