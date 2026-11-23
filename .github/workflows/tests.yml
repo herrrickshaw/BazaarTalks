@@ -1,0 +1,38 @@
+name: tests
+
+# Unit tests + coverage. Separate from ci.yml because ci.yml checks out Git LFS content
+# (needed for its integrity manifest) and its checkout currently fails on the LFS quota;
+# the unit tests need no LFS data.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install test dependencies
+        run: pip install pytest pytest-cov pytest-randomly pandas numpy scipy scikit-learn requests
+      - name: Run tests with coverage
+        run: python -m pytest tests -q --cov --cov-config=.coveragerc --cov-report=xml --cov-report=term
+      - name: Upload coverage to Codecov
+        if: matrix.python-version == '3.12'
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: coverage.xml
+          fail_ci_if_error: false
