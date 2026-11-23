@@ -223,3 +223,11 @@ def test_main_default_market_is_us(tmp_path, monkeypatch, capsys):
     risk.main()
     assert seen["m"] == "US"
     assert "(3 days)" in capsys.readouterr().err
+
+
+def test_sortino_ignores_exactly_zero_excess_returns_as_downside():
+    import risk
+    # only one strictly negative excess return -> downside deviation is undefined (0) -> 0.0
+    assert risk.sortino([0.0, 0.0, -0.01, 0.02]) == 0.0
+    # with a second strictly negative return it is defined and positive-mean => positive ratio
+    assert risk.sortino([0.0, -0.01, -0.02, 0.05]) > 0

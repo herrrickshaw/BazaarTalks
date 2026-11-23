@@ -666,3 +666,9 @@ def test_main_without_market_enumerates_all_markets(monkeypatch, capsys):
     monkeypatch.setattr(ca, "scan_splits", lambda m: got.append(m) or pd.DataFrame())
     run_main(monkeypatch, capsys, "--heuristic", "--all")
     assert got == ["US", "JP"]
+
+
+def test_nearest_split_ratio_tolerance_is_inclusive(monkeypatch):
+    monkeypatch.setattr(ca, "SPLIT_FACTORS", {"1:2": 2.0})
+    assert ca.nearest_split_ratio(2.5, tol=0.25) == ("1:2", 2.0)       # |2.5-2|/2 == 0.25 exactly
+    assert ca.nearest_split_ratio(2.5, tol=0.2499) is None

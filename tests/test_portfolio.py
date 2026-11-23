@@ -367,3 +367,10 @@ def test_main_prev_prints_turnover_and_max_sharpe(tmp_path, monkeypatch, capsys)
 def test_cap_weights_respects_cap_when_zero_weight_names_present():
     w = pf.cap_weights(np.array([0.0, 0.5, 0.3, 0.2]), 0.3)
     assert w.max() <= 0.3 + 1e-9
+
+
+def test_cap_weights_leaves_weights_exactly_at_the_cap_tolerance_untouched():
+    import portfolio
+    w = np.array([0.5 + 1e-12, 0.5 - 1e-12])
+    out = portfolio.cap_weights(w, 0.5)
+    assert (out == w).all()                      # w == cap + 1e-12 is not "over" (strict >)

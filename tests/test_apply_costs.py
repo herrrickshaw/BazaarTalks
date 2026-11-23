@@ -115,3 +115,15 @@ def test_main_skips_missing_db(tmp_path, monkeypatch, capsys):
     assert not (tmp_path / "net_viability_5d.csv").exists()
     md = (tmp_path / "NET_OF_COST.md").read_text()
     assert "horizon  (" not in md and "## Bottom line" in md
+
+
+def test_main_counts_zero_edge_as_not_positive(tmp_path, monkeypatch, capsys):
+    d5 = tmp_path / "v5.db"
+    # US cost is 0.10: gross edges 0.0 and 0.10 are not positive pre-cost (0.0) / net (0.0 net edge)
+    _make_db(d5, [("US", "Zero", 60.0, 0.0), ("US", "AtCost", 60.0, 0.10), ("US", "Good", 60.0, 0.5)])
+    monkeypatch.setattr(ac, "HERE", str(tmp_path))
+    monkeypatch.setattr(ac, "SUMMARIES", {"5d": str(d5)})
+    monkeypatch.setattr(pd.DataFrame, "to_markdown", lambda self, index=False: "T", raising=False)
+    ac.main()
+    md = (tmp_path / "NET_OF_COST.md").read_text()
+    assert "(1/3 screens keep positive edge net of cost; 2 were positive pre-cost)" in md
