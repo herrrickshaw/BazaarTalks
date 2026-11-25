@@ -41,7 +41,7 @@ QUERY_CATALOG = {
            "WHERE code='GGG' ORDER BY composite DESC LIMIT {limit}",
     "dvm_dist": "SELECT code, label, count(*) n FROM dvm_composite GROUP BY 1,2 ORDER BY n DESC",
     "high_roe_low_de": "SELECT market, ticker, roe, de, pe, sector FROM fundamentals "
-                       "WHERE roe>15 AND de<1 AND de IS NOT NULL ORDER BY roe DESC LIMIT {limit}",
+                       "WHERE roe>15 AND de>=0 AND de<1 ORDER BY roe DESC LIMIT {limit}",
 }
 
 # tokens allowed in an ad-hoc filter predicate (columns, numbers, operators)

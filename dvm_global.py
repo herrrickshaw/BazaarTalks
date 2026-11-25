@@ -115,6 +115,13 @@ def process_market(mkt: str, screen: str):
     df = pd.read_parquet(os.path.join(SEED, f"cleaned_long_{mkt}.parquet")).sort_values("Date")
     piv = lambda col: df.pivot_table(index="Date", columns="Symbol", values=col, aggfunc="last").sort_index()
     c, h, low, v = piv("Close"), piv("High"), piv("Low"), piv("Volume")
+    # drop sparse sessions: a day on which most symbols have no bar would otherwise put NaN
+    # inside every rolling window and silently null ADX / vol_ratio / MFI for the whole market
+    keep = c.count(axis=1) >= 0.5 * c.count(axis=1).median()
+    c, h, low, v = c[keep], h[keep], low[keep], v[keep]
+    # bridge isolated per-symbol gaps (<=5 sessions): rolling(14/20/50/200) without min_periods
+    # returns NaN if ANY bar in the window is missing
+    c, h, low, v = (x.ffill(limit=5) for x in (c, h, low, v))
 
     d = c.diff()
     rsi = 100 - 100 / (1 + d.clip(lower=0).rolling(14).mean() /
