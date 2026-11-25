@@ -15,7 +15,7 @@ jobs:
         with:
           lfs: true                  # need real LFS content so file hashes match the manifest
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
 
