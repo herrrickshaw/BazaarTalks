@@ -326,7 +326,7 @@ def test_refresh_creates_base_when_missing(wh, pq, tmp_path):
     new.to_pickle(tmp_path / "new.parquet")
     out = wh.refresh_ohlc_partition("US", str(tmp_path / "new.parquet"))
     assert out == {"market": "US", "rows_before": 0, "rows_added": 2, "rows_after": 2}
-    assert pq["kwargs"] == {"index": False, "compression": "snappy"}
+    assert pq["kwargs"] == {"index": False, "compression": "zstd", "compression_level": 19}
     assert len(pd.read_pickle(os.path.join(wh.SEED, "cleaned_long_US.parquet"))) == 2
 
 
