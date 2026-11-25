@@ -1,0 +1,41 @@
+[run]
+source = .
+omit =
+    tests/*
+    */conftest.py
+    conftest.py
+    # Live market-scan scripts: yfinance / NSE network calls, thread pools and print-only reports
+    full_european_market_scan.py
+    full_indian_market_scan.py
+    full_japan_market_scan.py
+    full_korea_market_scan.py
+    full_us_market_scan.py
+    nse_data_fetcher.py
+    live_fundamentals.py
+    fundamentals_global.py
+    unlisted_enrichment.py
+    enrich_industries.py
+    # Browser / login sessions and the HTTP dashboard server
+    screener_session.py
+    trendlyne_session.py
+    serve.py
+    # Cassandra / Kafka / Flink / DuckDB-server integrations (need the services)
+    market_store.py
+    kafka_cdc_consumer.py
+    kafka_signal_consumer.py
+    flink_cdc_consumer.py
+    flink_screens.py
+    # Subprocess orchestrator and one-off build scripts
+    pipeline.py
+    build_india_seed.py
+    build_industry_parquet.py
+    scripts/*
+    # Governance / backlog tooling executed by CI itself
+    architecture/*
+    safe/*
+
+[report]
+exclude_lines =
+    pragma: no cover
+    if __name__ == .__main__.:
+    raise NotImplementedError
